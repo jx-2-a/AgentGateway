@@ -456,6 +456,82 @@ async def api_gateway_stop():
     }
 
 
+@router.post("/api/system/gateway/restart", dependencies=[Depends(require_auth)])
+async def api_gateway_restart():
+    """重启网关服务（含所有 Agent 会话 / gotify）。
+
+    流程：
+    1. spawn 独立 restart_helper.py（DETACHED，不在被杀树内）——等旧网关
+       释放端口后自动拉起新网关。
+    2. 后台线程：杀各 ttyd 会话 + gotify → os._exit 只杀自己（不动 helper）。
+    响应先返回，约 5 秒后服务恢复。
+    """
+    import sys as _sys
+
+    from gateway.core.gotify_proc import get_gotify_manager
+
+    # 读监听端口（默认 8080）
+    port = 8080
+    env_path = Path(__file__).parent.parent.parent / ".env"
+    if env_path.exists():
+        try:
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line.startswith("PORT="):
+                    try:
+                        port = int(line.split("=", 1)[1].strip())
+                    except ValueError:
+                        pass
+                    break
+        except OSError:
+            pass
+
+    helper = Path(__file__).parent.parent / "core" / "restart_helper.py"
+    _root = Path(__file__).parent.parent.parent
+    try:
+        subprocess.Popen(
+            [_sys.executable, str(helper), str(port)],
+            cwd=str(_root),
+            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            close_fds=True,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"重启调度失败: {e}")
+
+    def _do_restart():
+        time.sleep(2)  # 让响应先回到浏览器
+        # 杀 ttyd 会话（每个按 PID 树杀，不动 helper）
+        for s in sm.list_sessions():
+            if s.pid:
+                try:
+                    subprocess.run(
+                        ["taskkill", "/PID", str(s.pid), "/T", "/F"],
+                        capture_output=True,
+                        timeout=8,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
+                except Exception:
+                    pass
+        # 杀 gotify
+        gp = get_gotify_manager().get_pid()
+        if gp:
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(gp), "/T", "/F"],
+                    capture_output=True,
+                    timeout=8,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except Exception:
+                pass
+        # 只杀自己（os._exit 不杀子进程 → restart_helper 存活继续拉起新网关）
+        os._exit(0)
+
+    threading.Thread(target=_do_restart, daemon=True).start()
+    return {"ok": True, "note": "网关重启中，约 5 秒后恢复（含 Agent 会话与 gotify）"}
+
+
 # ---- WebSocket 实时终端（经 gateway 中继，浏览器不直连 ttyd） ----
 
 

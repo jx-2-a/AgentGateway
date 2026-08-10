@@ -276,6 +276,7 @@
         <div class="tool-sec">
           <div class="tool-sec-head">本服务 (Gateway)
             <span class="spacer"></span>
+            <button class="tool-btn" onclick="restartGateway()">重启</button>
             <button class="tool-btn danger" onclick="stopGateway()">停止服务</button>
           </div>
           <div id="self-info"></div>
@@ -556,6 +557,7 @@ function renderTools(d) {
 
   // ---- 本服务 ----
   const g = d.gateway || {};
+  _gwPid = g.pid || null;  // 停止服务的二次确认要用
   document.getElementById('self-info').innerHTML = `
     <div class="trow"><span class="name">PID ${g.pid || '-'}</span>
       <span class="meta">${fmtUptime(g.uptime_sec || 0)} · ${g.mem_mb} MB · ${esc(g.hostname || '')} · Py${esc(g.python || '')}</span></div>`;
@@ -593,9 +595,19 @@ async function toggleNotify(el) {
   }
 }
 
-// 停止网关服务本身：响应返回后网关按 PID 自杀（连同 Agent 会话/ttyd/gotify）
+// 当前网关 PID（renderTools 更新），停止服务的二次确认要用
+let _gwPid = null;
+
+// 停止网关服务：二次确认（先 confirm，再输入 PID 或「停止」，防误触）
 async function stopGateway() {
-  if (!confirm('确定停止网关服务？\n所有 Agent 会话与手机推送都会停，需重新运行 start.bat 启动。')) return;
+  if (!_gwPid) return cmdLog('[错误] 拿不到网关 PID，无法确认', 'err');
+  if (!confirm('⚠ 确定停止网关服务？\n所有 Agent 会话与手机推送都会停，需重新运行 start.bat 启动。')) return;
+  const ans = (prompt('二次确认：输入网关 PID ' + _gwPid + '，或输入「停止」') || '').trim();
+  if (!ans) return;
+  if (ans !== String(_gwPid) && ans !== '停止') {
+    cmdLog('⏹ 已取消：确认输入不匹配', 'err');
+    return;
+  }
   cmdLog('⏹ 正在停止网关 ...');
   try {
     const r = await api('/api/system/gateway/stop', { method: 'POST' });
@@ -603,6 +615,18 @@ async function stopGateway() {
   } catch (e) {
     // 网关自杀后请求/轮询会断开，这里成功或失败都算已停
     cmdLog('✅ 网关已停止', 'err');
+  }
+}
+
+// 重启网关：一次确认（服务会自己回来，误触代价小）
+async function restartGateway() {
+  if (!confirm('确定重启网关服务？\n所有 Agent 会话会终止，约 5 秒后服务恢复。')) return;
+  cmdLog('🔄 正在重启网关 ...');
+  try {
+    const r = await api('/api/system/gateway/restart', { method: 'POST' });
+    cmdLog('✅ ' + (r.note || '网关重启中'), 'err');
+  } catch (e) {
+    cmdLog('[错误] 重启失败: ' + e.message, 'err');
   }
 }
 
