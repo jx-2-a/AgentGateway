@@ -80,6 +80,7 @@ _STATIC_FILES = {
     "xterm.min.js": "application/javascript",
     "xterm.min.css": "text/css",
     "xterm-addon-fit.min.js": "application/javascript",
+    "favicon.ico": "image/x-icon",
 }
 
 # ============================================================================
