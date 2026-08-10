@@ -10,6 +10,9 @@ WebSocket 端点也在 accept 前校验 cookie。
 import json
 import mimetypes
 import os
+import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -406,6 +409,35 @@ async def api_vpn_control(body: VpnBody):
     if body.action not in ("connect", "disconnect"):
         raise HTTPException(status_code=400, detail="action 须为 connect/disconnect")
     return vpn_action(body.name, body.action == "connect")
+
+
+@router.post("/api/system/gateway/stop", dependencies=[Depends(require_auth)])
+async def api_gateway_stop():
+    """停止网关服务本身（本服务卡片的「停止服务」按钮）。
+
+    按 PID 用 taskkill /T 杀自己这棵进程树：网关 + 所有 ttyd Agent 会话
+    + gotify 推送服务。后台延迟 1 秒执行，让响应先返回给网页。
+    """
+    pid = os.getpid()
+
+    def _kill():
+        time.sleep(1)
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except Exception:
+            os._exit(0)
+
+    threading.Thread(target=_kill, daemon=True).start()
+    return {
+        "ok": True,
+        "pid": pid,
+        "note": "网关 1 秒后停止（含 Agent 会话与 gotify），重新运行 start.bat 启动",
+    }
 
 
 # ---- WebSocket 实时终端（经 gateway 中继，浏览器不直连 ttyd） ----

@@ -74,11 +74,13 @@ pip install -r requirements.txt
 # 2. 配置
 cp .env.example .env            # 填写 GATEWAY_TOKEN / TTYD_PATH / GOTIFY_PATH 等
 
-# 3. 启动
-python bot.py                   # 默认 0.0.0.0:8080；自动拉起 Gotify 推送服务
+# 3. 启动（后台）
+start.bat                       # 最小化控制台后台启动，日志写 gateway.log
 ```
 
 访问 `http://<host>:8080`，用 `.env` 里的 `GATEWAY_TOKEN` 登录，即可从面板启动任意 Agent 并打开其终端。
+
+**停止**：面板「本服务 → 停止服务」按 PID 停止整棵进程树（含 Agent 会话 / gotify）；或运行 `stop.bat`（按端口 8080 杀）。网关正常退出不主动杀 gotify，任务计划式强杀时 gotify 会随之停止、下次启动自动拉起。
 
 **依赖**：ttyd（终端引擎，Windows 可用 `ttyd.win32.exe`，启动参数 `-W -w <cwd>` 不可缺）；Gotify server（可选，手机通知用，网关自动拉起，`GOTIFY_PATH` 指定可执行文件）。
 

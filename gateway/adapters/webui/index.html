@@ -260,7 +260,10 @@
           <div id="proc-list"></div>
         </div>
         <div class="tool-sec">
-          <div class="tool-sec-head">本服务 (Gateway)</div>
+          <div class="tool-sec-head">本服务 (Gateway)
+            <span class="spacer"></span>
+            <button class="tool-btn danger" onclick="stopGateway()">停止服务</button>
+          </div>
           <div id="self-info"></div>
         </div>
         <div class="cmd-log" id="cmd-log"></div>
@@ -549,6 +552,19 @@ async function refreshTools() {
     const d = await api('/api/system');
     renderTools(d);
   } catch (e) {}
+}
+
+// 停止网关服务本身：响应返回后网关按 PID 自杀（连同 Agent 会话/ttyd/gotify）
+async function stopGateway() {
+  if (!confirm('确定停止网关服务？\n所有 Agent 会话与手机推送都会停，需重新运行 start.bat 启动。')) return;
+  cmdLog('⏹ 正在停止网关 ...');
+  try {
+    const r = await api('/api/system/gateway/stop', { method: 'POST' });
+    cmdLog('✅ 网关已停止 (PID ' + r.pid + ')，可关闭本页面', 'err');
+  } catch (e) {
+    // 网关自杀后请求/轮询会断开，这里成功或失败都算已停
+    cmdLog('✅ 网关已停止', 'err');
+  }
 }
 
 async function doTailscale() {
