@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Gateway</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --yellow: #e3b341;
+    --cyan: #39c5cf;
+    --red: #f85149;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    font-size: 14px; min-height: 100vh;
+  }
+  .mono { font-family: Consolas, "Courier New", monospace; }
+
+  /* ---- 细滚动条 ---- */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+  * { scrollbar-width: thin; scrollbar-color: #30363d transparent; }
+
+  /* ---- 头部 ---- */
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    background: var(--card);
+  }
+  header .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 8px var(--green); }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header .mode {
+    margin-left: auto; padding: 4px 12px; border-radius: 12px;
+    background: rgba(88,166,255,.15); color: var(--accent); font-size: 12px;
+    border: 1px solid rgba(88,166,255,.3);
+  }
+  /* ---- 状态卡片 ---- */
+  .cards {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    padding: 16px 20px 8px;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .card .label { color: var(--dim); font-size: 12px; text-transform: uppercase; }
+  .card .value { font-size: 24px; font-weight: 600; margin-top: 4px; }
+  .card .sub { color: var(--dim); font-size: 12px; margin-top: 2px; }
+  .card.cpu .value { color: var(--yellow); }
+  .card.mem .value { color: var(--cyan); }
+  .card.agents .value { color: var(--accent); }
+  .card.sessions .value { color: var(--green); }
+
+  /* ---- 主体网格 ---- */
+  .panels {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    padding: 8px 20px;
+  }
+  .panel {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .panel h3 { padding: 12px 16px; font-size: 13px; color: var(--dim);
+    border-bottom: 1px solid var(--border); }
+  .panel h3.h3-btn { display: flex; align-items: center; gap: 8px; }
+  .panel .body { flex: 1; overflow-y: auto; padding: 8px; }
+
+  /* 本地Shell 按钮（与 mode 徽章同风格） */
+  .shell-btn {
+    margin-left: auto; padding: 4px 12px; border-radius: 6px;
+    background: rgba(88,166,255,.12); color: var(--accent);
+    border: 1px solid rgba(88,166,255,.35); cursor: pointer; font-size: 12px;
+    white-space: nowrap;
+  }
+  .shell-btn:hover { background: rgba(88,166,255,.22); }
+
+  /* 命令面板占整行 */
+  .panel.command { grid-column: 1 / -1; }
+
+  /* ---- 列表 ---- */
+  .row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 8px; font-size: 13px;
+  }
+  .row:hover { background: rgba(255,255,255,.04); }
+  .row .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .row .dot.on { background: var(--green); }
+  .row .dot.off { background: var(--dim); }
+  .row .dot.busy { background: var(--yellow); }
+  .row .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .info { color: var(--dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .actions { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
+  .row .mini-btn {
+    background: transparent; color: var(--dim); border: 1px solid var(--border);
+    border-radius: 6px; padding: 3px 4px; cursor: pointer; font-size: 12px;
+    white-space: nowrap; min-width: 52px; text-align: center;
+  }
+  .row .mini-btn:hover { color: var(--text); border-color: var(--dim); }
+  .row .mini-btn.primary:hover { color: var(--accent); border-color: var(--accent); }
+  .row .mini-btn.danger:hover { color: var(--red); border-color: var(--red); }
+  .empty { color: var(--dim); text-align: center; padding: 20px; font-size: 13px; }
+
+  /* ---- Agent 分组（归拢） ---- */
+  .group { padding: 6px 10px 0; }
+  .group-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; margin-top: 6px;
+    font-size: 12px; color: var(--dim); font-weight: 600;
+    border-bottom: 1px solid var(--border);
+  }
+  .group-head:first-child { margin-top: 0; }
+  .group-head .gcount { color: var(--dim); font-weight: 400; }
+  .group-head .spacer { flex: 1; }
+  .group-head .g-stop { cursor: pointer; color: var(--red); font-weight: 400; }
+  .group-head .g-stop:hover { text-decoration: underline; }
+
+  /* ---- 命令面板 ---- */
+  .command .cmd-log {
+    flex: 1; overflow-y: auto; padding: 8px 12px; min-height: 120px;
+    font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap;
+    word-break: break-all; color: var(--text); max-height: 240px;
+  }
+  .command .cmd-log .reply { color: var(--accent); margin: 4px 0; }
+  .command .cmd-log .err { color: var(--red); margin: 4px 0; }
+  .command .cmd-input {
+    display: flex; gap: 8px; padding: 8px 12px 12px; border-top: 1px solid var(--border);
+  }
+  .command .cmd-input input {
+    flex: 1; padding: 8px 10px; border-radius: 8px;
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    font-family: Consolas, monospace; outline: none;
+  }
+  .command .cmd-input input:focus { border-color: var(--accent); }
+  .command .cmd-input button {
+    padding: 8px 16px; border: none; border-radius: 8px;
+    background: var(--accent); color: #0d1117; font-weight: 600; cursor: pointer;
+  }
+
+  /* ---- 文件浏览 modal ---- */
+  .modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 200;
+    display: flex; align-items: center; justify-content: center; padding: 12px;
+  }
+  .modal.hidden { display: none; }
+  .modal-box {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    width: min(680px, 94vw); max-height: 84vh;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .modal-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .modal-head .title { font-size: 14px; font-weight: 600; }
+  .modal-head select {
+    margin-left: auto; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; font-size: 12px;
+  }
+  .modal-head .modal-close {
+    background: none; border: none; color: var(--dim); font-size: 18px;
+    cursor: pointer; line-height: 1;
+  }
+  .file-crumb {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+    padding: 8px 16px; border-bottom: 1px solid var(--border);
+    font-size: 12px; color: var(--dim); flex-shrink: 0;
+  }
+  .file-crumb .crumb-item { cursor: pointer; color: var(--accent); }
+  .file-list { flex: 1; overflow-y: auto; padding: 8px; min-height: 180px; }
+  .file-item {
+    padding: 7px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .file-item:hover { background: rgba(255,255,255,.04); }
+  .file-item .dim { color: var(--dim); font-size: 12px; margin-left: auto; }
+  .file-preview {
+    border-top: 1px solid var(--border); padding: 12px 16px;
+    overflow: auto; max-height: 38vh; flex-shrink: 0;
+  }
+  .file-preview img { max-width: 100%; border-radius: 8px; }
+  .file-preview pre {
+    font-family: Consolas, monospace; font-size: 12px;
+    white-space: pre-wrap; word-break: break-all; color: var(--text);
+  }
+  .file-preview a { color: var(--accent); }
+
+  /* ---- 登录遮罩 ---- */
+  #login-overlay {
+    position: fixed; inset: 0; background: var(--bg); z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #login-overlay.hidden { display: none; }
+  .login-box {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 30px; width: 320px; text-align: center;
+  }
+  .login-box h2 { margin-bottom: 6px; font-size: 18px; }
+  .login-box p { color: var(--dim); font-size: 12px; margin-bottom: 18px; }
+  .login-box input {
+    width: 100%; padding: 10px 12px; border-radius: 8px;
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    font-family: Consolas, monospace; margin-bottom: 12px; outline: none;
+  }
+  .login-box input:focus { border-color: var(--accent); }
+  .login-box button {
+    width: 100%; padding: 10px; border: none; border-radius: 8px;
+    background: var(--accent); color: #0d1117; font-weight: 600; cursor: pointer;
+  }
+  .login-box .err { color: var(--red); font-size: 12px; margin-top: 10px; min-height: 16px; }
+
+  @media (max-width: 700px) {
+    .cards { grid-template-columns: repeat(2, 1fr); }
+    .panels { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 登录遮罩 -->
+<div id="login-overlay">
+  <div class="login-box">
+    <h2>🔐 Agent Gateway</h2>
+    <p>请输入访问令牌</p>
+    <input type="password" id="token-input" placeholder="gateway token" autocomplete="off">
+    <button id="login-btn">登 录</button>
+    <div class="err" id="login-err"></div>
+  </div>
+</div>
+
+<!-- 文件浏览 modal -->
+<div id="file-modal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <span class="title" id="file-title">📁 文件</span>
+      <select id="file-project" style="display:none"></select>
+      <button class="modal-close" id="file-close">✕</button>
+    </div>
+    <div class="file-crumb" id="file-crumb"></div>
+    <div class="file-list" id="file-list"></div>
+    <div class="file-preview" id="file-preview" style="display:none"></div>
+  </div>
+</div>
+
+<!-- 主面板 -->
+<main id="dashboard" style="display:none">
+  <header>
+    <span class="dot"></span>
+    <h1>Agent Gateway</h1>
+    <span class="mode mono" id="mode-badge"></span>
+  </header>
+
+  <div class="cards">
+    <div class="card cpu"><div class="label">CPU</div><div class="value" id="cpu-val">--%</div><div class="sub" id="cpu-sub"></div></div>
+    <div class="card mem"><div class="label">Memory</div><div class="value" id="mem-val">--</div><div class="sub" id="mem-sub"></div></div>
+    <div class="card agents"><div class="label">Agents</div><div class="value" id="agents-val">-</div><div class="sub">registered</div></div>
+    <div class="card sessions"><div class="label">Sessions</div><div class="value" id="sessions-val">-</div><div class="sub" id="uptime-sub"></div></div>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <h3 class="h3-btn">Agents
+        <button class="shell-btn" onclick="startAgent('shell')">🖥 本地Shell</button>
+      </h3>
+      <div class="body" id="agents-list"><div class="empty">加载中...</div></div>
+    </div>
+    <div class="panel">
+      <h3>Sessions</h3>
+      <div class="body" id="sessions-list"><div class="empty">加载中...</div></div>
+    </div>
+    <div class="panel command">
+      <h3>命令</h3>
+      <div class="cmd-log" id="cmd-log"></div>
+      <div class="cmd-input">
+        <input id="cmd-text" placeholder="输入 gateway 命令（help）" autocomplete="off">
+        <button id="cmd-send">发送</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+// ============================================================================
+// 状态
+// ============================================================================
+let mode = { mode: 'gateway' };
+let authed = false;
+// agent_key -> 运行中 session 数（启动/归拢用）
+let runningByAgent = {};
+let sessionsCache = [];
+
+// ============================================================================
+// 工具
+// ============================================================================
+async function api(url, opts = {}) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (res.status === 401 && !authed) {
+    showLogin(); throw new Error('unauthorized');
+  }
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail; } catch (e) {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+function showLogin() { document.getElementById('login-overlay').classList.remove('hidden'); }
+function hideLogin() { document.getElementById('login-overlay').classList.add('hidden'); }
+
+function esc(s) {
+  return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+function escAttr(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtSize(n) {
+  if (n == null) return '';
+  if (n < 1024) return n + 'B';
+  if (n < 1024*1024) return (n/1024).toFixed(1) + 'K';
+  return (n/1024/1024).toFixed(1) + 'M';
+}
+function cap(s) { s = String(s); return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// 终端页 URL（手机/桌面各自拿到正确的 host）
+function termUrl(sessionId) {
+  return location.origin + '/term?session=' + encodeURIComponent(sessionId);
+}
+function openTerminal(sessionId) {
+  window.open(termUrl(sessionId), '_blank');
+}
+async function copyText(text, msg) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+  }
+  cmdLog(msg || ('已复制: ' + text));
+}
+function cmdLog(text, cls) {
+  const el = document.getElementById('cmd-log');
+  const line = document.createElement('div');
+  line.textContent = text;
+  if (cls) line.className = cls;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ============================================================================
+// Agents（卡片：复制链接 / 归拢 / 启动）
+// ============================================================================
+function renderAgents(agents) {
+  const el = document.getElementById('agents-list');
+  agents = agents.filter(a => !a.hidden);   // 隐藏项（如 shell）不展示
+  if (!agents.length) { el.innerHTML = '<div class="empty">无已注册 Agent</div>'; return; }
+  runningByAgent = {};
+  agents.forEach(a => { runningByAgent[a.key] = a.running_count || 0; });
+
+  el.innerHTML = agents.map(a => `
+    <div class="row">
+      <span class="dot ${a.is_online ? 'on' : 'off'}"></span>
+      <span class="name">${esc(cap(a.key))}</span>
+      <span class="info">${a.running_count ? '运行中 ' + a.running_count : ''}</span>
+      <span class="actions">
+        <button class="mini-btn" onclick="openFiles('${esc(a.key)}')">文件</button>
+        <button class="mini-btn" onclick="copyAgentLink('${esc(a.key)}')">复制链接</button>
+        <button class="mini-btn primary" onclick="startAgent('${esc(a.key)}')">启动</button>
+      </span>
+    </div>`).join('');
+}
+
+// 复制该 agent 第一个运行中 session 的终端直链
+function copyAgentLink(key) {
+  const s = sessionsCache.find(x => x.agent_key === key && x.running && x.port);
+  if (!s) { cmdLog(`[${key}] 没有运行中的会话可复制`, 'err'); return; }
+  copyText(termUrl(s.id), `已复制 ${key} 终端链接`);
+}
+
+// ============================================================================
+// Sessions（按 agent 归拢）
+// ============================================================================
+function renderSessions(sessions) {
+  sessionsCache = sessions;
+  const el = document.getElementById('sessions-list');
+  if (!sessions.length) { el.innerHTML = '<div class="empty">无会话</div>'; return; }
+
+  // 按 agent 分组，保持 agent 顺序与 Agents 面板一致
+  const groups = {};
+  sessions.forEach(s => {
+    (groups[s.agent_key || s.agent] = groups[s.agent_key || s.agent] || []).push(s);
+  });
+
+  let html = '';
+  for (const [key, list] of Object.entries(groups)) {
+    const anyRunning = list.some(s => s.running);
+    html += `<div class="group"><div class="group-head">` +
+      `<span class="dot ${anyRunning ? 'on' : 'off'}"></span>` +
+      `${esc(cap(key))}<span class="gcount">${list.length}</span>` +
+      `<span class="spacer"></span>` +
+      (anyRunning ? `<span class="g-stop" onclick="stopAgentGroup('${esc(key)}')">全部停止</span>` : '') +
+      `</div>`;
+    html += list.map(s => {
+      const running = s.running;
+      const actions = running
+        ? `<button class="mini-btn primary" onclick="openTerminal('${esc(s.id)}')">终端</button>` +
+          `<button class="mini-btn" onclick="copySessionLink('${esc(s.id)}')">复制</button>` +
+          `<button class="mini-btn danger" onclick="stopSession('${esc(s.id)}')">停止</button>`
+        : `<button class="mini-btn primary" onclick="openTerminal('${esc(s.id)}')">查看</button>` +
+          `<button class="mini-btn" onclick="copySessionLink('${esc(s.id)}')">复制</button>` +
+          `<button class="mini-btn danger" onclick="deleteSession('${esc(s.id)}')">删除</button>`;
+      const pidStr = s.port ? ' :' + s.port : '';
+      const exitStr = s.exit_code != null ? ' · exit ' + esc(String(s.exit_code)) : '';
+      return `<div class="row">
+        <span class="dot ${running ? 'on' : 'off'}"></span>
+        <span class="name">${esc(cap(s.agent_key))}</span>
+        <span class="info">#${esc(s.id)} · ${esc(s.status)}${pidStr}${exitStr}</span>
+        <span class="actions">${actions}</span>
+      </div>`;
+    }).join('');
+    html += `</div>`;
+  }
+  el.innerHTML = html;
+}
+
+function copySessionLink(id) {
+  const s = sessionsCache.find(x => x.id === id);
+  copyText(termUrl(id), s ? '已复制 ' + cap(s.agent_key) + ' #' + s.id + ' 终端链接' : '已复制链接');
+}
+
+async function stopAgentGroup(key) {
+  const list = sessionsCache.filter(s => s.agent_key === key && s.running);
+  for (const s of list) {
+    try { await api('/api/sessions/' + encodeURIComponent(s.id) + '/stop', { method: 'POST' }); }
+    catch (e) { cmdLog('[错误] ' + e.message, 'err'); }
+  }
+  cmdLog('⏹ 已停止 ' + key + ' 的 ' + list.length + ' 个会话');
+  refreshSessions();
+}
+
+// ============================================================================
+// 会话操作
+// ============================================================================
+async function startAgent(key) {
+  cmdLog('🚀 启动 ' + key + ' ...');
+  let s;
+  try {
+    s = await api('/api/sessions', {
+      method: 'POST', body: JSON.stringify({ agent_name: key }),
+    });
+  } catch (e) { cmdLog('[错误] ' + e.message, 'err'); return; }
+  if (s.status === 'error') {
+    cmdLog('[错误] Agent 启动失败: ' + (s.error || '未知错误'), 'err');
+  } else {
+    cmdLog('✅ 已创建 Session: ' + s.id + ' (端口 ' + (s.port || '?') + ')');
+    if (s.port) openTerminal(s.id);   // 直接打开终端页
+  }
+  refreshAll();
+}
+
+async function stopSession(id) {
+  try {
+    await api('/api/sessions/' + encodeURIComponent(id) + '/stop', { method: 'POST' });
+    cmdLog('⏹ 已停止 Session: ' + id);
+    refreshAll();
+  } catch (e) { cmdLog('[错误] ' + e.message, 'err'); }
+}
+
+async function deleteSession(id) {
+  try {
+    await api('/api/sessions/' + encodeURIComponent(id), { method: 'DELETE' });
+    cmdLog('🗑 已删除 Session: ' + id);
+    refreshAll();
+  } catch (e) { cmdLog('[错误] ' + e.message, 'err'); }
+}
+
+// ============================================================================
+// 命令面板
+// ============================================================================
+async function runCommand(text) {
+  if (!text.trim()) return;
+  cmdLog('> ' + text);
+  try {
+    const data = await api('/api/command', { method: 'POST', body: JSON.stringify({ text }) });
+    mode = data.mode;
+    updateModeBadge();
+    if (data.reply) cmdLog(data.reply, 'reply');
+    refreshSessions();
+  } catch (e) {
+    cmdLog('[错误] ' + e.message, 'err');
+  }
+}
+
+// ============================================================================
+// 状态卡片 + 图表
+// ============================================================================
+function updateCards(s) {
+  document.getElementById('cpu-val').textContent = Math.round(s.cpu_percent) + '%';
+  document.getElementById('mem-val').textContent = s.memory_used_gb + 'G';
+  document.getElementById('mem-sub').textContent = '共 ' + s.memory_total_gb + 'GB (' + Math.round(s.memory_used_gb / s.memory_total_gb * 100) + '%)';
+  document.getElementById('agents-val').textContent = s.agent_count;
+  document.getElementById('sessions-val').textContent = s.session_count;
+  document.getElementById('uptime-sub').textContent = 'boot ' + s.boot_time;
+}
+
+function modeText(m) {
+  if (m.mode === 'shell') return 'Shell Mode';
+  if (m.mode === 'attached') return 'Attached: ' + m.session_id;
+  return '';
+}
+
+function updateModeBadge() {
+  const el = document.getElementById('mode-badge');
+  const t = modeText(mode);
+  el.textContent = t;
+  el.hidden = !t;
+}
+
+async function refreshStatus() {
+  try {
+    const s = await api('/api/status');
+    mode = s.mode;
+    updateModeBadge();
+    updateCards(s);
+  } catch (e) {}
+}
+
+async function refreshSessions() {
+  try {
+    const s = await api('/api/sessions');
+    renderSessions(s);
+  } catch (e) {}
+}
+
+async function refreshAgents() {
+  try {
+    const a = await api('/api/agents');
+    renderAgents(a);
+  } catch (e) {}
+}
+
+async function refreshAll() {
+  await Promise.all([refreshStatus(), refreshSessions(), refreshAgents()]);
+}
+
+// ============================================================================
+// 文件浏览
+// ============================================================================
+let fileAgentKey = null;
+let fileAgentData = null;
+let fileProject = '';
+let filePath = '';
+
+const IMG_EXTS = ['png','jpg','jpeg','gif','webp','svg','bmp'];
+const TXT_EXTS = ['txt','csv','log','md','json','yaml','yml','py','toml','cfg','ini','xml'];
+
+function fileUrl(path, dl) {
+  const u = new URL('/api/file', location.href);
+  u.searchParams.set('agent', fileAgentKey);
+  u.searchParams.set('path', path || '');
+  u.searchParams.set('project', fileProject);
+  if (dl) u.searchParams.set('dl', '1');
+  return u.href;
+}
+
+async function openFiles(key) {
+  let agents;
+  try { agents = await api('/api/agents'); } catch (e) { return; }
+  const agent = agents.find(a => a.key === key);
+  if (!agent) return;
+  fileAgentKey = key;
+  fileAgentData = agent;
+  fileProject = agent.default_project || '';
+  filePath = '';
+  document.getElementById('file-title').textContent = '📁 ' + agent.name + ' 文件';
+  renderProjectSelect();
+  document.getElementById('file-modal').classList.remove('hidden');
+  document.getElementById('file-preview').style.display = 'none';
+  await loadFiles('');
+}
+
+function renderProjectSelect() {
+  const sel = document.getElementById('file-project');
+  const a = fileAgentData;
+  if (a && a.projects && a.projects.length > 1) {
+    sel.style.display = '';
+    sel.innerHTML = a.projects.map(p =>
+      `<option value="${escAttr(p)}" ${p === fileProject ? 'selected' : ''}>${esc(p)}</option>`).join('');
+  } else {
+    sel.style.display = 'none';
+  }
+}
+
+async function loadFiles(path) {
+  filePath = path;
+  const q = new URLSearchParams({ path: path || '', project: fileProject });
+  let data;
+  try {
+    data = await api('/api/agents/' + encodeURIComponent(fileAgentKey) + '/files?' + q.toString());
+  } catch (e) {
+    document.getElementById('file-list').innerHTML = '<div class="empty">加载失败: ' + esc(e.message) + '</div>';
+    return;
+  }
+  renderCrumb(data.path, data.parent);
+
+  const list = document.getElementById('file-list');
+  const prev = document.getElementById('file-preview');
+  prev.style.display = 'none'; prev.innerHTML = '';
+
+  if (!data.items.length) { list.innerHTML = '<div class="empty">空目录</div>'; return; }
+  list.innerHTML = data.items.map(it => {
+    const icon = it.type === 'dir' ? '📁' : '📄';
+    const size = it.type === 'file' && it.size != null ? '<span class="dim">' + fmtSize(it.size) + '</span>' : '';
+    return `<div class="file-item" data-type="${it.type}" data-path="${escAttr(it.path)}">${icon} ${esc(it.name)}${size}</div>`;
+  }).join('');
+}
+
+document.getElementById('file-list').addEventListener('click', ev => {
+  const el = ev.target.closest('.file-item');
+  if (!el) return;
+  const path = el.dataset.path;
+  if (el.dataset.type === 'dir') loadFiles(path);
+  else previewFile(path);
+});
+
+async function previewFile(path) {
+  const prev = document.getElementById('file-preview');
+  prev.style.display = 'block';
+  const ext = (path.split('.').pop() || '').toLowerCase();
+
+  if (IMG_EXTS.includes(ext)) {
+    prev.innerHTML = '<img src="' + escAttr(fileUrl(path)) + '" alt="preview">';
+    return;
+  }
+  if (TXT_EXTS.includes(ext)) {
+    prev.innerHTML = '<p class="dim">加载中...</p>';
+    try {
+      const res = await fetch(fileUrl(path));
+      const text = await res.text();
+      prev.innerHTML = '<pre>' + esc(text.slice(0, 20000)) + (text.length > 20000 ? '\n…(已截断)' : '') + '</pre>';
+    } catch (e) {
+      prev.innerHTML = '<p class="dim">读取失败: ' + esc(e.message) + '</p>';
+    }
+    return;
+  }
+  prev.innerHTML = '<p class="dim">该类型无法内联预览，<a href="' + escAttr(fileUrl(path, true)) + '">点击下载</a></p>';
+}
+
+function renderCrumb(path, parent) {
+  const crumb = document.getElementById('file-crumb');
+  const parts = path ? path.split('/') : [];
+  let html = '<span class="crumb-item" onclick="loadFiles(\'\')">根目录</span>';
+  let acc = '';
+  parts.forEach(p => {
+    acc = acc ? acc + '/' + p : p;
+    html += ' <span class="crumb-sep">/</span> <span class="crumb-item" onclick="loadFiles(\'' + escAttr(acc) + '\')">' + esc(p) + '</span>';
+  });
+  crumb.innerHTML = html;
+}
+
+// ============================================================================
+// 初始化
+// ============================================================================
+async function init() {
+  try {
+    await api('/api/status');
+  } catch (e) { if (!authed) return; }
+  authed = true;
+  hideLogin();
+  document.getElementById('dashboard').style.display = '';
+  await refreshAll();
+  setInterval(refreshAll, 1000);
+}
+
+// 登录按钮
+document.getElementById('login-btn').addEventListener('click', async () => {
+  const token = document.getElementById('token-input').value;
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    if (!res.ok) throw new Error('token 错误');
+    location.reload();
+  } catch (e) {
+    document.getElementById('login-err').textContent = '令牌错误，请重试';
+  }
+});
+document.getElementById('token-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('login-btn').click();
+});
+
+// 命令面板
+document.getElementById('cmd-send').addEventListener('click', () => {
+  const input = document.getElementById('cmd-text');
+  runCommand(input.value); input.value = '';
+});
+document.getElementById('cmd-text').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('cmd-send').click();
+});
+
+// 文件 modal 关闭
+document.getElementById('file-close').addEventListener('click', () => {
+  document.getElementById('file-modal').classList.add('hidden');
+});
+document.getElementById('file-modal').addEventListener('click', e => {
+  if (e.target.id === 'file-modal') document.getElementById('file-modal').classList.add('hidden');
+});
+document.getElementById('file-project').addEventListener('change', e => {
+  fileProject = e.target.value;
+  loadFiles('');
+});
+
+init();
+</script>
+</body>
+</html>

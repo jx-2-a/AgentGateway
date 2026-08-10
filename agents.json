@@ -1,0 +1,103 @@
+{
+    "claude": {
+        "name": "Claude",
+        "status": "online",
+        "type": "repl",
+        "root": "C:\\Users\\JinXi",
+        "cwd": "C:\\Users\\JinXi",
+        "cmd": [
+            "C:\\Users\\JinXi\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"
+        ],
+        "env": {},
+        "file_roots": [],
+        "note": "Claude Code 交互式终端，可在任意目录开发/改文件；凭据复用本机 ~/.claude 登录"
+    },
+    "shell": {
+        "name": "Shell",
+        "hidden": true,
+        "status": "online",
+        "type": "repl",
+        "root": "C:\\Users\\JinXi",
+        "cwd": "C:\\Users\\JinXi",
+        "cmd": [
+            "powershell.exe",
+            "-NoLogo"
+        ],
+        "env": {},
+        "file_roots": [],
+        "note": "本地空 shell，不含 agent，随便敲命令"
+    },
+    "emisinver": {
+        "name": "科研",
+        "status": "online",
+        "type": "repl",
+        "root": "D:\\DsEdit\\Emisinver",
+        "venv": "D:\\PyVenv\\Emisinver\\.venv",
+        "cwd": "{root}",
+        "cmd": [
+            "{venv}\\Scripts\\python.exe",
+            "-m",
+            "ALb.Agent.Local.loop",
+            "--config",
+            "{root}\\ALb\\Agent\\Local\\config.yaml"
+        ],
+        "env": {
+            "PYTHONPATH": "{root}"
+        },
+        "file_roots": [
+            "{root}\\.agentspace"
+        ],
+        "note": "config 为 2fa，启动后在终端输 TOTP 6 位动态码，或直接回车走 key 认证"
+    },
+    "wal": {
+        "name": "WAL写作",
+        "status": "online",
+        "type": "repl",
+        "root": "D:\\DsEdit\\WAL",
+        "venv": "D:\\PyVenv\\WAL\\.venv",
+        "cwd": "{root}",
+        "cmd": [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            "{root}\\start.ps1"
+        ],
+        "env": {
+            "PYTHONPATH": "{root}",
+            "WAL_PROJECTS": "{root}\\projects",
+            "TERM_PROGRAM": "ttyd"
+        },
+        "load_env_from": "{root}\\.env",
+        "projects": [
+            "青石",
+            "行卷"
+        ],
+        "default_project": "青石",
+        "file_roots": [
+            "{root}\\projects\\{project}"
+        ],
+        "note": "start 时需指定项目名，默认青石；不支持项目切换时用默认即可"
+    },
+    "learnlove": {
+        "name": "恋爱",
+        "status": "online",
+        "type": "repl",
+        "root": "D:\\DsEdit\\LearnLove",
+        "venv": "D:\\DsEdit\\LearnLove\\.venv",
+        "cwd": "{root}",
+        "cmd": [
+            "{venv}\\Scripts\\python.exe",
+            "-m",
+            "agent.loop"
+        ],
+        "env": {
+            "PYTHONPATH": "{root}"
+        },
+        "file_roots": [
+            "C:\\Users\\JinXi\\.learnlove_data"
+        ],
+        "note": "/a 自动监听用 msvcrt 读控制台，网页输入不生效，建议用默认 REPL"
+    }
+}

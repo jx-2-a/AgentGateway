@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>终端</title>
+<link rel="stylesheet" href="xterm.min.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #0d1117; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    color: #c9d1d9; display: flex; flex-direction: column; height: 100%;
+    overscroll-behavior: none;
+  }
+
+  /* ---- 顶部状态条 ---- */
+  #status-bar {
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+    /* safe-area 加进 calc，PC 上 safe-area=0 时仍保留 6px 上内边距（内容才垂直居中） */
+    padding: calc(6px + env(safe-area-inset-top)) 12px 6px;
+    font-size: 13px; color: #8b949e;
+    font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #161b22; border-bottom: 1px solid #30363d;
+  }
+  #status-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: #e3b341; flex-shrink: 0; }
+  #status-bar.connected .dot { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
+  #status-bar.exited .dot { background: #f85149; }
+  #status-bar .title { font-weight: 600; color: #c9d1d9; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  #status-bar .spacer { flex: 1; }
+  /* 返回主页：胶囊形，与主题一致 */
+  #status-bar .home-btn {
+    padding: 4px 14px; border-radius: 999px; font-size: 12px;
+    background: rgba(88,166,255,.12); color: #58a6ff;
+    border: 1px solid rgba(88,166,255,.35); text-decoration: none;
+    white-space: nowrap;
+  }
+  #status-bar .home-btn:hover { background: rgba(88,166,255,.22); }
+
+  /* ---- 终端区 ---- */
+  #term-wrap { flex: 1; min-height: 0; padding: 0 0 0 6px; display: flex; }
+  #term-host { position: relative; flex: 1; min-width: 0; }
+  #term-host .xterm { height: 100%; }
+  #term-host .xterm .xterm-viewport { padding-bottom: 2px; }
+  /* xterm 滚动条改深色（默认白色太刺眼，桌面用原生可拖滑块） */
+  #term-host .xterm .xterm-viewport::-webkit-scrollbar { width: 8px; }
+  #term-host .xterm .xterm-viewport::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+  #term-host .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover { background: #484f58; }
+  #term-host .xterm .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+  #term-host .xterm .xterm-viewport { scrollbar-width: thin; scrollbar-color: #30363d transparent; }
+
+  /* ---- 手机滑屏：允许纵向滚动（xterm 默认吃触控手势，导致滑不动） ---- */
+  #term-host .xterm .xterm-viewport {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  #term-host .xterm .xterm-screen,
+  #term-host .xterm .xterm-viewport {
+    touch-action: pan-y;
+  }
+
+  /* ---- 手机：右侧可拖动滑块（触屏原生滚动条不可拖/被隐藏，自己补一个） ---- */
+  #scroll-rail { position: relative; width: 14px; flex-shrink: 0; display: none;
+    touch-action: none; cursor: pointer; }
+  #scroll-thumb { position: absolute; right: 3px; width: 5px; border-radius: 3px;
+    background: #30363d; opacity: 0; transition: opacity .15s; }
+  #scroll-rail.has #scroll-thumb { opacity: 1; }
+  #scroll-rail.has.dragging #scroll-thumb { background: #58a6ff; }
+  @media (pointer: coarse) {
+    #scroll-rail { display: block; }
+    #term-host .xterm .xterm-viewport::-webkit-scrollbar { display: none; }
+  }
+
+  /* ---- 手机工具条 ---- */
+  #toolbar {
+    flex-shrink: 0; display: none;
+    background: #161b22; border-top: 1px solid #30363d;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    gap: 6px; user-select: none; -webkit-user-select: none;
+  }
+  #toolbar.show { display: flex; flex-wrap: wrap; }
+  #toolbar .key {
+    flex: 1 1 0; min-width: 44px; height: 44px;
+    background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+    border-radius: 8px; font-size: 14px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: manipulation;
+  }
+  #toolbar .key:active { background: #30363d; }
+  #toolbar .key.accent { color: #58a6ff; border-color: #58a6ff33; }
+
+  /* ---- 断线遮罩 ---- */
+  #overlay {
+    position: fixed; inset: 0; background: #0d1117ee; z-index: 50;
+    display: none; align-items: center; justify-content: center; text-align: center;
+    color: #8b949e; font-size: 14px; padding: 20px;
+  }
+  #overlay.show { display: flex; flex-direction: column; gap: 12px; }
+  #overlay .big { font-size: 32px; }
+  #overlay button {
+    margin-top: 8px; padding: 10px 24px; border: none; border-radius: 8px;
+    background: #58a6ff; color: #0d1117; font-weight: 600; font-size: 14px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div id="status-bar">
+  <span class="dot"></span>
+  <span class="title" id="status-title">连接中...</span>
+  <span class="spacer"></span>
+  <a href="/" class="home-btn">主页</a>
+</div>
+
+<div id="term-wrap">
+  <div id="term-host"></div>
+  <div id="scroll-rail"><div id="scroll-thumb"></div></div>
+</div>
+
+<div id="toolbar" class="show">
+  <button class="key" data-key="esc">Esc</button>
+  <button class="key" data-key="tab">Tab</button>
+  <button class="key accent" data-key="ctrlc">Ctrl+C</button>
+  <button class="key" data-key="up">↑</button>
+  <button class="key" data-key="down">↓</button>
+  <button class="key" data-key="left">←</button>
+  <button class="key" data-key="right">→</button>
+</div>
+
+<div id="overlay">
+  <div class="big">📡</div>
+  <div id="overlay-msg">连接中断，正在重试...</div>
+  <button id="retry-btn">重新连接</button>
+</div>
+
+<script src="xterm.min.js"></script>
+<script src="xterm-addon-fit.min.js"></script>
+<script>
+// ============================================================================
+// 终端页：浏览器 → gateway /api/ws/session/{id}（JSON 协议）→ 中继 → ttyd
+//   服务端 → 客户端: {type:"data", data:<文本>} / {type:"exit", code}
+//   客户端 → 服务端: {type:"input", data} / {type:"resize", cols, rows}
+// gateway 负责重放最近输出 + 多客户端广播，所以刷新/重连/多端看到同一会话。
+// ============================================================================
+const term = new Terminal({
+  fontFamily: 'Consolas, "Courier New", monospace',
+  fontSize: 16,
+  lineHeight: 1.15,
+  scrollback: 20000,
+  cursorBlink: true,
+  rendererType: 'canvas',           // 手机 WebGL 渲染又热又卡，canvas 稳
+  theme: {
+    background: '#0d1117', foreground: '#c9d1d9',
+    cursor: '#58a6ff', selectionBackground: '#264f78',
+    black: '#0d1117', brightBlack: '#484f58',
+    red: '#f85149', brightRed: '#ff7b72',
+    green: '#3fb950', brightGreen: '#56d364',
+    yellow: '#e3b341', brightYellow: '#ffa657',
+    blue: '#58a6ff', brightBlue: '#79c0ff',
+    magenta: '#bc8cff', brightMagenta: '#d2a8ff',
+    cyan: '#39c5cf', brightCyan: '#56d4dd',
+    white: '#c9d1d9', brightWhite: '#f0f6fc',
+  },
+});
+const fitAddon = new FitAddon.FitAddon();
+term.loadAddon(fitAddon);
+term.open(document.getElementById('term-host'));
+term.focus();
+
+// ---- 手机：右侧可拖动滑块 ----
+// 触屏设备原生滚动条不可拖（iOS 直接隐藏），在右侧补一个轨道+滑块。
+// 仅当内容可滚动时显示；桌面 pointer:fine 用原生滚动条。
+const IS_TOUCH = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+const termHost = document.getElementById('term-host');
+const scrollRail = document.getElementById('scroll-rail');
+const scrollThumb = document.getElementById('scroll-thumb');
+const viewportEl = termHost.querySelector('.xterm-viewport');
+let scrDragging = false, scrOffset = 0;
+
+function updateScrThumb() {
+  if (!IS_TOUCH) return;
+  const sh = viewportEl.scrollHeight, ch = viewportEl.clientHeight;
+  const maxScroll = sh - ch;
+  if (maxScroll <= 0) { scrollRail.classList.remove('has'); return; }
+  scrollRail.classList.add('has');
+  const trackH = scrollRail.clientHeight;
+  const thumbH = Math.max(28, (ch / sh) * trackH);
+  const maxTop = trackH - thumbH;
+  scrollThumb.style.height = thumbH + 'px';
+  scrollThumb.style.top = (viewportEl.scrollTop / maxScroll) * maxTop + 'px';
+}
+
+function scrToY(clientY) {
+  const trackH = scrollRail.clientHeight;
+  const sh = viewportEl.scrollHeight, ch = viewportEl.clientHeight;
+  const maxScroll = sh - ch;
+  if (maxScroll <= 0) return;
+  const maxTop = trackH - scrollThumb.offsetHeight;
+  let top = clientY - scrollRail.getBoundingClientRect().top - scrOffset;
+  top = Math.max(0, Math.min(maxTop, top));
+  if (maxTop > 0) viewportEl.scrollTop = (top / maxTop) * maxScroll;
+}
+
+if (IS_TOUCH) {
+  viewportEl.addEventListener('scroll', updateScrThumb);
+  scrollRail.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    scrollRail.classList.add('dragging');
+    if (e.target === scrollThumb) {
+      scrOffset = e.clientY - scrollThumb.getBoundingClientRect().top;
+    } else {
+      scrOffset = scrollThumb.offsetHeight / 2;   // 点轨道：滑块跳到手指位置再拖
+      scrToY(e.clientY);
+    }
+    scrDragging = true;
+  });
+  document.addEventListener('pointermove', e => { if (scrDragging) scrToY(e.clientY); });
+  const endScrDrag = () => { scrDragging = false; scrollRail.classList.remove('dragging'); };
+  document.addEventListener('pointerup', endScrDrag);
+  document.addEventListener('pointercancel', endScrDrag);
+}
+
+const statusBar = document.getElementById('status-bar');
+const statusTitle = document.getElementById('status-title');
+const overlay = document.getElementById('overlay');
+const overlayMsg = document.getElementById('overlay-msg');
+
+function setStatus(state, title) {
+  statusBar.className = state;
+  if (title) statusTitle.textContent = title;
+}
+function showOverlay(msg, withBtn) {
+  overlayMsg.textContent = msg;
+  overlay.classList.add('show');
+  document.getElementById('retry-btn').style.display = withBtn ? '' : 'none';
+}
+function hideOverlay() { overlay.classList.remove('show'); }
+
+// ---- WS 连接（自动重连） ----
+let ws = null;
+let sessionId = null;
+let sessionTitle = '';
+let retryTimer = null;
+let retries = 0;
+let closed = false;
+function cap(s) { s = String(s); return s.charAt(0).toUpperCase() + s.slice(1); }
+
+function wsUrl() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  return proto + '://' + location.host + '/api/ws/session/' + encodeURIComponent(sessionId);
+}
+
+function connect() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  setStatus('', '连接中...');
+  try { ws = new WebSocket(wsUrl()); } catch (e) { scheduleRetry(); return; }
+
+  ws.onopen = () => {
+    retries = 0;
+    hideOverlay();
+    setStatus('connected');
+    // 通知 gateway 当前尺寸，并落在当前状态而不是会话开头
+    sendResize();
+    requestAnimationFrame(() => term.scrollToBottom());
+    term.focus();
+  };
+
+  ws.onmessage = ev => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    if (msg.type === 'data') {
+      term.write(msg.data);
+      if (IS_TOUCH) requestAnimationFrame(updateScrThumb);
+    } else if (msg.type === 'exit') {
+      closed = true;
+      const ro = !!msg.readonly;
+      setStatus('exited');
+      statusTitle.textContent = sessionTitle + (ro ? '（已退出·只读）' : '');
+      // 不弹遮罩（会挡住历史输出），只在终端里写一行提示
+      term.write('\r\n' + (ro ? '── 进程已退出，以上为历史输出 ──' : '[进程已退出, code=' + (msg.code ?? '?') + ']'));
+    }
+  };
+
+  ws.onclose = () => {
+    if (closed) return;
+    showOverlay('连接已断开，正在重试...', true);
+    scheduleRetry();
+  };
+  ws.onerror = () => {};
+}
+
+function scheduleRetry() {
+  retries++;
+  const delay = Math.min(2000 * Math.pow(1.5, retries - 1), 15000);
+  clearTimeout(retryTimer);
+  retryTimer = setTimeout(connect, delay);
+}
+
+// ---- 发送 ----
+function sendData(s) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'input', data: s }));
+  }
+}
+
+let resizeTimer = null;
+function sendResize() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+}
+
+// ---- 键盘/输入 ----
+term.onData(d => sendData(d));   // 实体键盘/手机软键盘按键原样透传
+
+term.onResize(() => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(sendResize, 100);
+  if (IS_TOUCH) requestAnimationFrame(updateScrThumb);
+});
+
+// 点击终端聚焦，唤起手机软键盘（点右侧滑块除外，避免拖滚动条时弹键盘）
+document.getElementById('term-wrap').addEventListener('pointerdown', ev => {
+  if (ev.target.closest('#scroll-rail')) return;
+  term.focus();
+});
+
+// ---- 工具条按键 ----
+// 序列在 JS 里定义（HTML 属性里的 \x1b 是字面量，不是 ESC 字节）
+const KEY_SEQS = {
+  esc: '\x1b', tab: '\x09',
+  ctrlc: '\x03',
+  up: '\x1b[A', down: '\x1b[B',
+  left: '\x1b[D', right: '\x1b[C',
+};
+document.getElementById('toolbar').addEventListener('click', ev => {
+  const btn = ev.target.closest('.key');
+  if (!btn) return;
+  const seq = KEY_SEQS[btn.dataset.key];
+  if (seq !== undefined) {
+    sendData(seq);
+    term.focus();
+  }
+});
+
+document.getElementById('retry-btn').addEventListener('click', () => {
+  clearTimeout(retryTimer);
+  connect();
+});
+overlay.addEventListener('click', () => {
+  clearTimeout(retryTimer);
+  connect();
+});
+
+// ============================================================================
+// 初始化：拿 session 信息 → 连接
+// ============================================================================
+function fit() { try { fitAddon.fit(); } catch (e) {} if (IS_TOUCH) updateScrThumb(); window.dispatchEvent(new Event('resize')); }
+
+async function init() {
+  const params = new URLSearchParams(location.search);
+  sessionId = params.get('session');
+  if (!sessionId) { showOverlay('缺少 session 参数', false); return; }
+
+  let sessions;
+  try {
+    const res = await fetch('/api/sessions');
+    if (res.status === 401) { location.href = '/'; return; }
+    sessions = await res.json();
+  } catch (e) {
+    showOverlay('无法获取会话信息', false);
+    return;
+  }
+  const s = sessions.find(x => x.id === sessionId);
+  if (!s) {
+    showOverlay('会话不存在', false);
+    setStatus('exited', '会话不存在');
+    return;
+  }
+  sessionTitle = cap(s.agent_key) + ' #' + s.id;
+  document.title = sessionTitle + ' — 终端';
+  setStatus('', '连接中: ' + sessionTitle);
+  if (!s.running) {
+    // 已退出：只读查看历史输出，隐藏输入工具条
+    statusTitle.textContent = sessionTitle + '（已退出·只读）';
+    document.getElementById('toolbar').classList.remove('show');
+  }
+  connect();
+}
+
+window.addEventListener('resize', () => { requestAnimationFrame(fit); });
+fit();
+init();
+</script>
+</body>
+</html>
