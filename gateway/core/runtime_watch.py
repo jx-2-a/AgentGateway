@@ -41,6 +41,41 @@ _NOTIFY_STATUS = {"waiting_input", "exited"}
 _POLL_INTERVAL = 1.0
 
 # ---------------------------------------------------------------------------
+# 通知主开关（系统面板「通知提醒」开关，持久化到 data/notify.json）
+# ---------------------------------------------------------------------------
+# 关闭时一律不推任何手机通知；开启后按「你在不在看」判定推送。
+_NOTIFY_SETTING_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "notify.json"
+
+_notifications_enabled: Optional[bool] = None  # None = 尚未加载
+
+
+def get_notifications_enabled() -> bool:
+    """通知主开关当前值（默认关闭；面板开启后持久化）。"""
+    global _notifications_enabled
+    if _notifications_enabled is None:
+        try:
+            data = json.loads(_NOTIFY_SETTING_PATH.read_text(encoding="utf-8"))
+            _notifications_enabled = bool(data.get("enabled", False))
+        except (OSError, ValueError):
+            _notifications_enabled = False
+    return _notifications_enabled
+
+
+def set_notifications_enabled(v: bool) -> bool:
+    """设置并持久化通知主开关。"""
+    global _notifications_enabled
+    _notifications_enabled = bool(v)
+    try:
+        _NOTIFY_SETTING_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _NOTIFY_SETTING_PATH.write_text(
+            json.dumps({"enabled": _notifications_enabled}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+    return _notifications_enabled
+
+# ---------------------------------------------------------------------------
 # 终端输出注意力识别
 # ---------------------------------------------------------------------------
 # 网关的 ttyd 中继能看到 agent 的全部终端输出。当「输出停止 + 最后一行像
@@ -155,7 +190,8 @@ class RuntimeWatcher:
         # 通知（去重：只在该状态首次出现时推一次；重新进入会再推）
         if status in _NOTIFY_STATUS and self._notified.get(session.id) != status:
             self._notified[session.id] = status
-            self._notify(session, status)
+            if get_notifications_enabled():
+                self._notify(session, status)
 
     def _notify(self, session, status: str):
         title = ""
@@ -214,7 +250,8 @@ class RuntimeWatcher:
         # --- 进程已退出（agent 自己结束）→ 低优提醒 ---
         if relay.exited and not st["exit_notified"] and now - st["created"] > 20:
             st["exit_notified"] = True
-            self._notify_exit(session, relay)
+            if get_notifications_enabled():
+                self._notify_exit(session, relay)
             return
 
         # --- 等待用户输入 ---
@@ -244,7 +281,12 @@ class RuntimeWatcher:
         # agent 自己上报过 waiting_input（runtime 路径），不重复推
         if session.runtime_status == "waiting_input":
             return
-        if relay.active_subscribers() > 0:  # 有人开着终端页在看
+        # 通知主开关：关闭就不推（等待态持续存在，开启后下个 tick 会补推）
+        if not get_notifications_enabled():
+            return
+        # 判断"你在不在看"只看手机：手机在前台盯终端页 → 不打扰；
+        # 手机切后台 / 离开终端页 / 没开终端页（桌面开着不算）→ 推
+        if relay.active_phone_watchers() > 0:
             return
         if st["notified"]:
             return

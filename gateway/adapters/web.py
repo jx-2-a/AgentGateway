@@ -31,7 +31,11 @@ from gateway.core.system_tools import (
     vpn_action,
 )
 from gateway.core.router import process_message, get_user_mode
-from gateway.core.runtime_watch import get_runtime_watcher
+from gateway.core.runtime_watch import (
+    get_notifications_enabled,
+    get_runtime_watcher,
+    set_notifications_enabled,
+)
 from gateway.core.ttyd_relay import get_ttyd_relay_manager
 from gateway.core.gotify_proc import get_gotify_manager
 
@@ -133,6 +137,10 @@ class InputBody(BaseModel):
 class VpnBody(BaseModel):
     name: str
     action: str  # connect | disconnect
+
+
+class NotifyBody(BaseModel):
+    enabled: bool
 
 
 # ============================================================================
@@ -386,8 +394,16 @@ async def api_command(body: CommandBody):
 
 @router.get("/api/system", dependencies=[Depends(require_auth)])
 async def api_system():
-    """系统工具卡片数据：内存、网络适配器、Tailscale 状态、运行中会话进程、网关自身信息。"""
-    return get_system_report(sm.list_sessions())
+    """系统工具卡片数据：内存、网络适配器、Tailscale 状态、运行中会话进程、网关自身信息、通知开关。"""
+    report = get_system_report(sm.list_sessions())
+    report["notifications_enabled"] = get_notifications_enabled()
+    return report
+
+
+@router.post("/api/system/notify", dependencies=[Depends(require_auth)])
+async def api_set_notify(body: NotifyBody):
+    """通知主开关（面板「通知提醒」）：关闭一律不推，开启后按"你在不在看"推。"""
+    return {"ok": True, "enabled": set_notifications_enabled(body.enabled)}
 
 
 @router.post("/api/system/memfree", dependencies=[Depends(require_auth)])
@@ -506,6 +522,12 @@ async def ws_session(ws: WebSocket, session_id: str):
             elif m == "resize":
                 await relay.send_resize(
                     int(msg.get("cols") or 80), int(msg.get("rows") or 24))
+            elif m == "hello":
+                # 终端页上报设备类型：判断"你在不在看"只看手机
+                relay.set_device(on_output, str(msg.get("device", "desktop")))
+            elif m == "visibility":
+                # 终端页上报前台/后台（切后台/关页面 → 通知判定依据）
+                relay.set_visibility(on_output, bool(msg.get("visible", True)))
     except Exception:
         pass
     finally:

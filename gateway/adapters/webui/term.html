@@ -260,6 +260,9 @@ function connect() {
     retries = 0;
     hideOverlay();
     setStatus('connected');
+    // 上报设备类型 + 当前前台状态（网关据此判断"你在不在看"→ 决定要不要推通知）
+    ws.send(JSON.stringify({ type: 'hello', device: IS_TOUCH ? 'mobile' : 'desktop' }));
+    sendPresence();
     // 通知 gateway 当前尺寸，并落在当前状态而不是会话开头
     sendResize();
     requestAnimationFrame(() => term.scrollToBottom());
@@ -309,6 +312,17 @@ function sendResize() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
 }
+
+// ---- 前台/后台上报：网关据此判断"你在不在看终端页" ----
+// 手机切到别的 App / 锁屏 → visibilitychange(hidden) → 上报 visible=false；
+// 回到终端页 / 重新聚焦 → visible=true。桌面端上报但网关只看手机。
+function sendPresence() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'visibility', visible: !document.hidden }));
+}
+document.addEventListener('visibilitychange', sendPresence);
+window.addEventListener('focus', sendPresence);
+window.addEventListener('blur', sendPresence);
 
 // ---- 键盘/输入 ----
 term.onData(d => sendData(d));   // 实体键盘/手机软键盘按键原样透传

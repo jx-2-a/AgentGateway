@@ -143,6 +143,13 @@
   .tool-btn.danger:hover { background: rgba(248,81,73,.1); }
   .tool-btn:disabled { opacity: .45; cursor: default; }
   .tool-sub { margin-top: 6px; }
+  /* 通知提醒开关 */
+  .switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .slider { position: absolute; inset: 0; background: #30363d; border-radius: 999px; transition: .2s; }
+  .switch .slider::before { content: ""; position: absolute; width: 18px; height: 18px; left: 2px; top: 2px; background: #8b949e; border-radius: 50%; transition: .2s; }
+  .switch input:checked + .slider { background: #238636; }
+  .switch input:checked + .slider::before { transform: translateX(18px); background: #fff; }
 
   .trow { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; min-width: 0; }
   .trow .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -236,6 +243,13 @@
     <div class="panel tools">
       <h3>系统工具</h3>
       <div class="tools-body">
+        <div class="tool-sec">
+          <div class="tool-sec-head">通知提醒
+            <span class="spacer"></span>
+            <label class="switch"><input type="checkbox" id="notify-toggle" onchange="toggleNotify(this)"><span class="slider"></span></label>
+          </div>
+          <div class="trow"><span class="meta" id="notify-hint">关闭：不推送手机通知</span></div>
+        </div>
         <div class="tool-sec">
           <div class="tool-sec-head">
             VPN
@@ -545,6 +559,11 @@ function renderTools(d) {
   document.getElementById('self-info').innerHTML = `
     <div class="trow"><span class="name">PID ${g.pid || '-'}</span>
       <span class="meta">${fmtUptime(g.uptime_sec || 0)} · ${g.mem_mb} MB · ${esc(g.hostname || '')} · Py${esc(g.python || '')}</span></div>`;
+
+  // ---- 通知提醒开关 ----
+  const notifyEl = document.getElementById('notify-toggle');
+  if (notifyEl.checked !== !!d.notifications_enabled) notifyEl.checked = !!d.notifications_enabled;
+  updateNotifyHint(notifyEl.checked);
 }
 
 async function refreshTools() {
@@ -552,6 +571,26 @@ async function refreshTools() {
     const d = await api('/api/system');
     renderTools(d);
   } catch (e) {}
+}
+
+// 通知主开关：关闭一律不推；开启后"手机不在终端页前台"才推
+function updateNotifyHint(on) {
+  document.getElementById('notify-hint').textContent = on
+    ? '开启：手机不在终端页 / 切后台时，agent 停下等你 → 响铃推送'
+    : '关闭：不推送手机通知';
+}
+async function toggleNotify(el) {
+  try {
+    const r = await api('/api/system/notify', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: el.checked }),
+    });
+    cmdLog(r.enabled ? '🔔 通知已开启' : '🔕 通知已关闭');
+    updateNotifyHint(r.enabled);
+  } catch (e) {
+    cmdLog('[错误] ' + e.message, 'err');
+    el.checked = !el.checked;
+  }
 }
 
 // 停止网关服务本身：响应返回后网关按 PID 自杀（连同 Agent 会话/ttyd/gotify）

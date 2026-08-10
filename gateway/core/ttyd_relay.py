@@ -48,8 +48,10 @@ class _Subscriber:
 
     _MAX_QUEUE = 64
 
-    def __init__(self, cb: Callable):
+    def __init__(self, cb: Callable, device: str = "desktop"):
         self.cb = cb
+        self.device = device      # "mobile" | "desktop"（终端页 hello 消息上报）
+        self.visible = True       # 页面前台可见？默认 True（没上报时假设在看）
         self.queue: asyncio.Queue = asyncio.Queue()
         self.task = asyncio.create_task(self._run())
 
@@ -162,9 +164,13 @@ class TtydRelay:
 
     # ---- 订阅（浏览器客户端） ----
 
-    def subscribe(self, cb: Callable):
-        """注册浏览器订阅者回调 cb(text)；text 为 None 表示进程退出。"""
-        self._subs.append(_Subscriber(cb))
+    def subscribe(self, cb: Callable, device: str = "desktop"):
+        """注册浏览器订阅者回调 cb(text)；text 为 None 表示进程退出。
+
+        device 由终端页 hello 消息上报（mobile/desktop），决定"你是否在看"
+        只看手机订阅者。默认 desktop，收到 hello 后再更新。
+        """
+        self._subs.append(_Subscriber(cb, device=device))
 
     def unsubscribe(self, cb: Callable):
         for sub in list(self._subs):
@@ -172,6 +178,30 @@ class TtydRelay:
                 self._subs.remove(sub)
                 sub.close()
                 break
+
+    # ---- 前端状态上报（ws_session 调用，同步更新同事件循环内的字段） ----
+
+    def set_device(self, cb: Callable, device: str):
+        """终端页上报设备类型（hello 消息）。"""
+        for sub in list(self._subs):
+            if sub.cb is cb:
+                sub.device = "mobile" if device == "mobile" else "desktop"
+                break
+
+    def set_visibility(self, cb: Callable, visible: bool):
+        """终端页上报前台/后台（visibilitychange / focus / blur）。"""
+        for sub in list(self._subs):
+            if sub.cb is cb:
+                sub.visible = bool(visible)
+                break
+
+    def active_phone_watchers(self) -> int:
+        """手机端正在前台盯这个终端页的订阅者数。
+
+        判断"你是否在看"只看手机（不看桌面——桌面开着不代表你在看）。
+        有手机订阅者且 visible=True → 你在前台看 → 不打扰。
+        """
+        return sum(1 for sub in self._subs if sub.device == "mobile" and sub.visible)
 
     def recent(self) -> str:
         """返回最近 _REPLAY_CHARS 字符（给新客户端重放）。"""
