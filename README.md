@@ -81,6 +81,8 @@ start.bat                       # 隐藏后台启动（无窗口），日志写 
 
 访问 `http://<host>:8080`，用 `.env` 里的 `GATEWAY_TOKEN` 登录，即可从面板启动任意 Agent 并打开其终端。
 
+**开机自启**（可选）：运行 `setup_autostart.bat`（或 `setup_autostart.ps1`），它把 `launch_gateway.vbs` 的快捷方式放进「启动」文件夹，下次登录 Windows 时网关**隐藏**后台自动启动，无黑框。取消自启：删除启动文件夹里的 `AgentGateway.lnk`（路径由脚本打印）。
+
 **停止**：面板「本服务 → 停止服务」按 PID 停止整棵进程树（含 Agent 会话 / gotify）；或运行 `stop.bat`（按端口 8080 杀）。网关正常退出不主动杀 gotify，任务计划式强杀时 gotify 会随之停止、下次启动自动拉起。
 
 **依赖**：ttyd（终端引擎，Windows 可用 `ttyd.win32.exe`，启动参数 `-W -w <cwd>` 不可缺）；Gotify server（可选，手机通知用，网关自动拉起，`GOTIFY_PATH` 指定可执行文件）。
