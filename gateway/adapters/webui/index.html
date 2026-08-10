@@ -85,9 +85,6 @@
   }
   .shell-btn:hover { background: rgba(88,166,255,.22); }
 
-  /* 命令面板占整行 */
-  .panel.command { grid-column: 1 / -1; }
-
   /* ---- 列表 ---- */
   .row {
     display: flex; align-items: center; gap: 10px;
@@ -125,75 +122,47 @@
   .group-head .g-stop { cursor: pointer; color: var(--red); font-weight: 400; }
   .group-head .g-stop:hover { text-decoration: underline; }
 
-  /* ---- 命令面板 ---- */
-  .command .cmd-log {
-    flex: 1; overflow-y: auto; padding: 8px 12px; min-height: 120px;
-    font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap;
-    word-break: break-all; color: var(--text); max-height: 240px;
-  }
-  .command .cmd-log .reply { color: var(--accent); margin: 4px 0; }
-  .command .cmd-log .err { color: var(--red); margin: 4px 0; }
-  .command .cmd-input {
-    display: flex; gap: 8px; padding: 8px 12px 12px; border-top: 1px solid var(--border);
-  }
-  .command .cmd-input input {
-    flex: 1; padding: 8px 10px; border-radius: 8px;
-    background: var(--bg); border: 1px solid var(--border); color: var(--text);
-    font-family: Consolas, monospace; outline: none;
-  }
-  .command .cmd-input input:focus { border-color: var(--accent); }
-  .command .cmd-input button {
-    padding: 8px 16px; border: none; border-radius: 8px;
-    background: var(--accent); color: #0d1117; font-weight: 600; cursor: pointer;
-  }
-
-  /* ---- 文件浏览 modal ---- */
-  .modal {
-    position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 200;
-    display: flex; align-items: center; justify-content: center; padding: 12px;
-  }
-  .modal.hidden { display: none; }
-  .modal-box {
-    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-    width: min(680px, 94vw); max-height: 84vh;
-    display: flex; flex-direction: column; overflow: hidden;
-  }
-  .modal-head {
-    display: flex; align-items: center; gap: 10px;
-    padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
-  }
-  .modal-head .title { font-size: 14px; font-weight: 600; }
-  .modal-head select {
-    margin-left: auto; background: var(--bg); color: var(--text);
-    border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; font-size: 12px;
-  }
-  .modal-head .modal-close {
-    background: none; border: none; color: var(--dim); font-size: 18px;
-    cursor: pointer; line-height: 1;
-  }
-  .file-crumb {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
-    padding: 8px 16px; border-bottom: 1px solid var(--border);
-    font-size: 12px; color: var(--dim); flex-shrink: 0;
-  }
-  .file-crumb .crumb-item { cursor: pointer; color: var(--accent); }
-  .file-list { flex: 1; overflow-y: auto; padding: 8px; min-height: 180px; }
-  .file-item {
-    padding: 7px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  /* ---- 系统工具面板 ---- */
+  .panel.tools { grid-column: 1 / -1; }
+  .tools-body { padding: 8px 12px 4px; }
+  .tool-sec { margin-bottom: 10px; }
+  .tool-sec-head {
     display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--dim); font-weight: 600; margin-bottom: 4px;
   }
-  .file-item:hover { background: rgba(255,255,255,.04); }
-  .file-item .dim { color: var(--dim); font-size: 12px; margin-left: auto; }
-  .file-preview {
-    border-top: 1px solid var(--border); padding: 12px 16px;
-    overflow: auto; max-height: 38vh; flex-shrink: 0;
+  .tool-sec-head .spacer { flex: 1; }
+  .tool-btn {
+    padding: 2px 10px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    background: transparent; color: var(--dim); border: 1px solid var(--border);
+    white-space: nowrap;
   }
-  .file-preview img { max-width: 100%; border-radius: 8px; }
-  .file-preview pre {
-    font-family: Consolas, monospace; font-size: 12px;
-    white-space: pre-wrap; word-break: break-all; color: var(--text);
+  .tool-btn:hover { color: var(--text); border-color: var(--dim); }
+  .tool-btn.primary { color: var(--accent); border-color: rgba(88,166,255,.35); }
+  .tool-btn.primary:hover { background: rgba(88,166,255,.12); }
+  .tool-btn.danger { color: var(--red); border-color: rgba(248,81,73,.35); }
+  .tool-btn.danger:hover { background: rgba(248,81,73,.1); }
+  .tool-btn:disabled { opacity: .45; cursor: default; }
+  .tool-sub { margin-top: 6px; }
+
+  .trow { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; min-width: 0; }
+  .trow .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .trow .name { font-weight: 600; white-space: nowrap; }
+  .trow .spacer { flex: 1; }
+  .trow .note { font-size: 10px; color: var(--dim); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0 6px; white-space: nowrap; flex-shrink: 0; }
+  .trow .meta { color: var(--dim); font-family: Consolas, monospace; font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ts-on { color: var(--green); }
+  .ts-off { color: var(--dim); }
+  .ts-state { font-size: 12px; font-weight: 600; }
+
+  .tools .cmd-log {
+    overflow-y: auto; padding: 6px 8px; margin-top: 2px; border-top: 1px dashed var(--border);
+    font-family: Consolas, monospace; font-size: 11px; white-space: pre-wrap;
+    word-break: break-all; color: var(--dim); max-height: 110px; min-height: 24px;
   }
-  .file-preview a { color: var(--accent); }
+  .tools .cmd-log .reply { color: var(--accent); }
+  .tools .cmd-log .err { color: var(--red); }
 
   /* ---- 登录遮罩 ---- */
   #login-overlay {
@@ -238,20 +207,6 @@
   </div>
 </div>
 
-<!-- 文件浏览 modal -->
-<div id="file-modal" class="modal hidden">
-  <div class="modal-box">
-    <div class="modal-head">
-      <span class="title" id="file-title">📁 文件</span>
-      <select id="file-project" style="display:none"></select>
-      <button class="modal-close" id="file-close">✕</button>
-    </div>
-    <div class="file-crumb" id="file-crumb"></div>
-    <div class="file-list" id="file-list"></div>
-    <div class="file-preview" id="file-preview" style="display:none"></div>
-  </div>
-</div>
-
 <!-- 主面板 -->
 <main id="dashboard" style="display:none">
   <header>
@@ -278,12 +233,37 @@
       <h3>Sessions</h3>
       <div class="body" id="sessions-list"><div class="empty">加载中...</div></div>
     </div>
-    <div class="panel command">
-      <h3>命令</h3>
-      <div class="cmd-log" id="cmd-log"></div>
-      <div class="cmd-input">
-        <input id="cmd-text" placeholder="输入 gateway 命令（help）" autocomplete="off">
-        <button id="cmd-send">发送</button>
+    <div class="panel tools">
+      <h3>系统工具</h3>
+      <div class="tools-body">
+        <div class="tool-sec">
+          <div class="tool-sec-head">
+            VPN
+            <span id="ts-state" class="ts-state"></span>
+            <span class="spacer"></span>
+            <button class="tool-btn primary" id="ts-up">连接</button>
+          </div>
+          <div class="trow"><span class="dot" id="ts-dot"></span><span class="name">Tailscale</span><span class="note">局域网</span><span class="meta" id="ts-meta"></span></div>
+          <div id="vpn-profiles"></div>
+        </div>
+        <div class="tool-sec">
+          <div class="tool-sec-head">
+            内存
+            <span class="spacer"></span>
+            <button class="tool-btn primary" id="memfree-btn">释放内存</button>
+          </div>
+          <div class="trow"><span class="name" id="mem-bar"></span><span class="meta" id="mem-detail"></span></div>
+          <div class="trow" id="memfree-msg" style="display:none"></div>
+        </div>
+        <div class="tool-sec">
+          <div class="tool-sec-head">运行中 Agent <span class="spacer"></span><span id="proc-count"></span></div>
+          <div id="proc-list"></div>
+        </div>
+        <div class="tool-sec">
+          <div class="tool-sec-head">本服务 (Gateway)</div>
+          <div id="self-info"></div>
+        </div>
+        <div class="cmd-log" id="cmd-log"></div>
       </div>
     </div>
   </div>
@@ -353,6 +333,8 @@ async function copyText(text, msg) {
   }
   cmdLog(msg || ('已复制: ' + text));
 }
+// 独立文件管理页（大区域 + 上传下载）
+function openFilesPage(key) { window.open('/files?agent=' + encodeURIComponent(key), '_blank'); }
 function cmdLog(text, cls) {
   const el = document.getElementById('cmd-log');
   const line = document.createElement('div');
@@ -372,17 +354,20 @@ function renderAgents(agents) {
   runningByAgent = {};
   agents.forEach(a => { runningByAgent[a.key] = a.running_count || 0; });
 
-  el.innerHTML = agents.map(a => `
-    <div class="row">
+  el.innerHTML = agents.map(a => {
+    const fileBtn = (a.file_roots && a.file_roots.length)
+      ? `<button class="mini-btn" onclick="openFilesPage('${esc(a.key)}')">文件</button>` : '';
+    return `<div class="row">
       <span class="dot ${a.is_online ? 'on' : 'off'}"></span>
       <span class="name">${esc(cap(a.key))}</span>
       <span class="info">${a.running_count ? '运行中 ' + a.running_count : ''}</span>
       <span class="actions">
-        <button class="mini-btn" onclick="openFiles('${esc(a.key)}')">文件</button>
+        ${fileBtn}
         <button class="mini-btn" onclick="copyAgentLink('${esc(a.key)}')">复制链接</button>
         <button class="mini-btn primary" onclick="startAgent('${esc(a.key)}')">启动</button>
       </span>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 // 复制该 agent 第一个运行中 session 的终端直链
@@ -490,20 +475,107 @@ async function deleteSession(id) {
 }
 
 // ============================================================================
-// 命令面板
+// 系统工具卡片（VPN/Tailscale、内存释放、设备、本服务）
 // ============================================================================
-async function runCommand(text) {
-  if (!text.trim()) return;
-  cmdLog('> ' + text);
-  try {
-    const data = await api('/api/command', { method: 'POST', body: JSON.stringify({ text }) });
-    mode = data.mode;
-    updateModeBadge();
-    if (data.reply) cmdLog(data.reply, 'reply');
-    refreshSessions();
-  } catch (e) {
-    cmdLog('[错误] ' + e.message, 'err');
+function fmtUptime(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+  return h ? h + 'h ' + m + 'm' : (m || 1) + 'm';
+}
+
+function renderTools(d) {
+  // ---- Tailscale ----
+  const ts = d.tailscale || {};
+  const st = document.getElementById('ts-state');
+  const dot = document.getElementById('ts-dot');
+  const meta = document.getElementById('ts-meta');
+  const upBtn = document.getElementById('ts-up');
+  if (ts.available) {
+    const on = !!ts.online;
+    st.textContent = on ? '● 已连接' : '○ 未连接';
+    st.className = 'ts-state ' + (on ? 'ts-on' : 'ts-off');
+    dot.className = 'dot ' + (on ? 'on' : 'off');
+    meta.textContent = on
+      ? (ts.hostname + ' · ' + (ts.self_ip || '') + (ts.exit_node ? ' · exit→' + ts.exit_node.hostname : ''))
+      : (ts.state === 'Stopped' ? 'Tailscale 已停止' : (ts.state || '未连接'));
+    upBtn.disabled = on;   // 已连接时置灰，仅断开时可用
+  } else {
+    st.textContent = 'CLI 未安装';
+    st.className = 'ts-state ts-off';
+    meta.textContent = ts.reason || '';
+    upBtn.disabled = true;
   }
+
+  // ---- Windows 内置 VPN（学校等，可连接/断开） ----
+  const profiles = d.vpn_profiles || [];
+  document.getElementById('vpn-profiles').innerHTML = profiles.length
+    ? '<div class="tool-sec-head tool-sub">内置 VPN</div>' + profiles.map(p => `
+        <div class="trow">
+          <span class="dot ${p.connected ? 'on' : 'off'}"></span>
+          <span class="name">${esc(p.name)}</span>
+          <span class="meta">${esc(p.server + (p.connected ? ' · 已连接' : ' · 未连接'))}</span>
+          <span class="spacer"></span>
+          <button class="tool-btn ${p.connected ? 'danger' : 'primary'}"
+            onclick="vpnAction('${escAttr(p.name)}', ${p.connected ? 'false' : 'true'})">${p.connected ? '断开' : '连接'}</button>
+        </div>`).join('')
+    : '';
+
+  // ---- 内存 ----
+  const m = d.mem || {};
+  document.getElementById('mem-bar').textContent =
+    '已用 ' + m.used_gb + ' G / ' + m.total_gb + ' G (' + Math.round(m.percent || 0) + '%)';
+  document.getElementById('mem-detail').textContent = '可用 ' + m.avail_gb + ' G';
+
+  // ---- 运行中 Agent 进程资源 ----
+  const procs = d.processes || [];
+  document.getElementById('proc-count').textContent = procs.length ? procs.length + ' 个' : '';
+  document.getElementById('proc-list').innerHTML = procs.length
+    ? procs.map(p => `
+        <div class="trow">
+          <span class="dot on"></span>
+          <span class="name">${esc(cap(p.agent_key))}</span>
+          <span class="meta">#${esc(p.session_id)} · :${p.port} · ${p.cpu_percent}% · ${p.mem_mb} MB</span>
+        </div>`).join('')
+    : '<div class="trow"><span class="meta">（无运行中会话）</span></div>';
+
+  // ---- 本服务 ----
+  const g = d.gateway || {};
+  document.getElementById('self-info').innerHTML = `
+    <div class="trow"><span class="name">PID ${g.pid || '-'}</span>
+      <span class="meta">${fmtUptime(g.uptime_sec || 0)} · ${g.mem_mb} MB · ${esc(g.hostname || '')} · Py${esc(g.python || '')}</span></div>`;
+}
+
+async function refreshTools() {
+  try {
+    const d = await api('/api/system');
+    renderTools(d);
+  } catch (e) {}
+}
+
+async function doTailscale() {
+  const upBtn = document.getElementById('ts-up');
+  upBtn.disabled = true;
+  cmdLog('🚀 连接 Tailscale ...');
+  try {
+    const r = await api('/api/system/tailscale/up', { method: 'POST' });
+    if (r.ok) cmdLog('✅ tailscale 连接成功');
+    else cmdLog('[错误] tailscale 连接失败: ' + r.detail, 'err');
+  } catch (e) { cmdLog('[错误] ' + e.message, 'err'); }
+  upBtn.disabled = false;
+  refreshTools();
+}
+
+// 连接/断开 Windows 内置 VPN（无需管理员）
+async function vpnAction(name, connect) {
+  cmdLog((connect ? '🚀 连接' : '⏹ 断开') + ' VPN ' + name + ' ...');
+  try {
+    const r = await api('/api/system/vpn', {
+      method: 'POST',
+      body: JSON.stringify({ name, action: connect ? 'connect' : 'disconnect' }),
+    });
+    if (r.ok) cmdLog('✅ ' + r.detail);
+    else cmdLog('[错误] ' + (r.detail || '操作失败'), 'err');
+  } catch (e) { cmdLog('[错误] ' + e.message, 'err'); }
+  refreshTools();
 }
 
 // ============================================================================
@@ -555,122 +627,7 @@ async function refreshAgents() {
 }
 
 async function refreshAll() {
-  await Promise.all([refreshStatus(), refreshSessions(), refreshAgents()]);
-}
-
-// ============================================================================
-// 文件浏览
-// ============================================================================
-let fileAgentKey = null;
-let fileAgentData = null;
-let fileProject = '';
-let filePath = '';
-
-const IMG_EXTS = ['png','jpg','jpeg','gif','webp','svg','bmp'];
-const TXT_EXTS = ['txt','csv','log','md','json','yaml','yml','py','toml','cfg','ini','xml'];
-
-function fileUrl(path, dl) {
-  const u = new URL('/api/file', location.href);
-  u.searchParams.set('agent', fileAgentKey);
-  u.searchParams.set('path', path || '');
-  u.searchParams.set('project', fileProject);
-  if (dl) u.searchParams.set('dl', '1');
-  return u.href;
-}
-
-async function openFiles(key) {
-  let agents;
-  try { agents = await api('/api/agents'); } catch (e) { return; }
-  const agent = agents.find(a => a.key === key);
-  if (!agent) return;
-  fileAgentKey = key;
-  fileAgentData = agent;
-  fileProject = agent.default_project || '';
-  filePath = '';
-  document.getElementById('file-title').textContent = '📁 ' + agent.name + ' 文件';
-  renderProjectSelect();
-  document.getElementById('file-modal').classList.remove('hidden');
-  document.getElementById('file-preview').style.display = 'none';
-  await loadFiles('');
-}
-
-function renderProjectSelect() {
-  const sel = document.getElementById('file-project');
-  const a = fileAgentData;
-  if (a && a.projects && a.projects.length > 1) {
-    sel.style.display = '';
-    sel.innerHTML = a.projects.map(p =>
-      `<option value="${escAttr(p)}" ${p === fileProject ? 'selected' : ''}>${esc(p)}</option>`).join('');
-  } else {
-    sel.style.display = 'none';
-  }
-}
-
-async function loadFiles(path) {
-  filePath = path;
-  const q = new URLSearchParams({ path: path || '', project: fileProject });
-  let data;
-  try {
-    data = await api('/api/agents/' + encodeURIComponent(fileAgentKey) + '/files?' + q.toString());
-  } catch (e) {
-    document.getElementById('file-list').innerHTML = '<div class="empty">加载失败: ' + esc(e.message) + '</div>';
-    return;
-  }
-  renderCrumb(data.path, data.parent);
-
-  const list = document.getElementById('file-list');
-  const prev = document.getElementById('file-preview');
-  prev.style.display = 'none'; prev.innerHTML = '';
-
-  if (!data.items.length) { list.innerHTML = '<div class="empty">空目录</div>'; return; }
-  list.innerHTML = data.items.map(it => {
-    const icon = it.type === 'dir' ? '📁' : '📄';
-    const size = it.type === 'file' && it.size != null ? '<span class="dim">' + fmtSize(it.size) + '</span>' : '';
-    return `<div class="file-item" data-type="${it.type}" data-path="${escAttr(it.path)}">${icon} ${esc(it.name)}${size}</div>`;
-  }).join('');
-}
-
-document.getElementById('file-list').addEventListener('click', ev => {
-  const el = ev.target.closest('.file-item');
-  if (!el) return;
-  const path = el.dataset.path;
-  if (el.dataset.type === 'dir') loadFiles(path);
-  else previewFile(path);
-});
-
-async function previewFile(path) {
-  const prev = document.getElementById('file-preview');
-  prev.style.display = 'block';
-  const ext = (path.split('.').pop() || '').toLowerCase();
-
-  if (IMG_EXTS.includes(ext)) {
-    prev.innerHTML = '<img src="' + escAttr(fileUrl(path)) + '" alt="preview">';
-    return;
-  }
-  if (TXT_EXTS.includes(ext)) {
-    prev.innerHTML = '<p class="dim">加载中...</p>';
-    try {
-      const res = await fetch(fileUrl(path));
-      const text = await res.text();
-      prev.innerHTML = '<pre>' + esc(text.slice(0, 20000)) + (text.length > 20000 ? '\n…(已截断)' : '') + '</pre>';
-    } catch (e) {
-      prev.innerHTML = '<p class="dim">读取失败: ' + esc(e.message) + '</p>';
-    }
-    return;
-  }
-  prev.innerHTML = '<p class="dim">该类型无法内联预览，<a href="' + escAttr(fileUrl(path, true)) + '">点击下载</a></p>';
-}
-
-function renderCrumb(path, parent) {
-  const crumb = document.getElementById('file-crumb');
-  const parts = path ? path.split('/') : [];
-  let html = '<span class="crumb-item" onclick="loadFiles(\'\')">根目录</span>';
-  let acc = '';
-  parts.forEach(p => {
-    acc = acc ? acc + '/' + p : p;
-    html += ' <span class="crumb-sep">/</span> <span class="crumb-item" onclick="loadFiles(\'' + escAttr(acc) + '\')">' + esc(p) + '</span>';
-  });
-  crumb.innerHTML = html;
+  await Promise.all([refreshStatus(), refreshSessions(), refreshAgents(), refreshTools()]);
 }
 
 // ============================================================================
@@ -684,7 +641,7 @@ async function init() {
   hideLogin();
   document.getElementById('dashboard').style.display = '';
   await refreshAll();
-  setInterval(refreshAll, 1000);
+  setInterval(refreshAll, 3000);
 }
 
 // 登录按钮
@@ -706,26 +663,22 @@ document.getElementById('token-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('login-btn').click();
 });
 
-// 命令面板
-document.getElementById('cmd-send').addEventListener('click', () => {
-  const input = document.getElementById('cmd-text');
-  runCommand(input.value); input.value = '';
+// 系统工具：内存释放 / Tailscale 连接
+document.getElementById('memfree-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('memfree-btn');
+  btn.disabled = true;
+  cmdLog('🧹 释放内存 ...');
+  try {
+    const r = await api('/api/system/memfree', { method: 'POST' });
+    const msg = document.getElementById('memfree-msg');
+    msg.style.display = '';
+    msg.innerHTML = '<span class="meta">已释放 ' + r.freed_gb + ' G 可用内存（' + r.processes + ' 个进程）</span>';
+    cmdLog('✅ 内存释放完成: 可用 +' + r.freed_gb + ' G');
+  } catch (e) { cmdLog('[错误] ' + e.message, 'err'); }
+  btn.disabled = false;
+  refreshTools();
 });
-document.getElementById('cmd-text').addEventListener('keydown', e => {
-  if (e.key === 'Enter') document.getElementById('cmd-send').click();
-});
-
-// 文件 modal 关闭
-document.getElementById('file-close').addEventListener('click', () => {
-  document.getElementById('file-modal').classList.add('hidden');
-});
-document.getElementById('file-modal').addEventListener('click', e => {
-  if (e.target.id === 'file-modal') document.getElementById('file-modal').classList.add('hidden');
-});
-document.getElementById('file-project').addEventListener('change', e => {
-  fileProject = e.target.value;
-  loadFiles('');
-});
+document.getElementById('ts-up').addEventListener('click', () => doTailscale());
 
 init();
 </script>

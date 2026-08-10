@@ -18,6 +18,7 @@ get_runtime_watcher() 确保它跑起来。
 
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime
@@ -30,6 +31,7 @@ from gotif import alert, notify
 from gateway.core import notifier
 from gateway.core.registry import get_agent_registry
 from gateway.core.session import get_session_manager
+from gateway.core.ttyd_relay import get_ttyd_relay_manager
 
 # agent 上报的合法状态
 _VALID_RUNTIME_STATUS = {"starting", "ready", "working", "waiting_input", "exited"}
@@ -37,6 +39,26 @@ _VALID_RUNTIME_STATUS = {"starting", "ready", "working", "waiting_input", "exite
 _NOTIFY_STATUS = {"waiting_input", "exited"}
 
 _POLL_INTERVAL = 1.0
+
+# ---------------------------------------------------------------------------
+# 终端输出注意力识别
+# ---------------------------------------------------------------------------
+# 网关的 ttyd 中继能看到 agent 的全部终端输出。当「输出停止 + 最后一行像
+# 输入提示符」时，说明 agent 停下等用户输入/检验 → 推 gotif。
+#
+# 判定一条"最后一行"是不是等待输入的提示符。已确认各 agent 的提示符格式：
+#   emisinver: 你 > / sh > / (y/N)     learnlove: 你 > / 咨询 >
+#   wal: You >                          claude: 裸 >       powershell: PS ...>
+# 共同的强信号是行尾的 `>` 箭头；再加一批显式等待关键词。
+_WAIT_RE = re.compile(
+    r">\s*$"                                  # 行尾箭头提示符
+    r"|\(\s*[yYnN]\s*/\s*[yYnN]\s*\)"         # (y/N) 确认
+    r"|请输入|请确认|请核对|请回复|请选择|请检查|请验证|请提供"
+    r"|需要你|等你回复|等待用户|等待指示|等你确认|等你输入"
+    r"|输入「?继续」?"
+)
+# 排除：纯 shell 不是 agent，不参与"等你"提醒
+_NO_ATTENTION_AGENTS = {"shell"}
 
 
 def _read_env(key: str, default: str = "") -> str:
@@ -51,6 +73,9 @@ def _read_env(key: str, default: str = "") -> str:
             if line and not line.startswith("#") and "=" in line:
                 k, _, v = line.partition("=")
                 if k.strip() == key:
+                    # 去掉行内注释（# 后面的说明文字）
+                    if "#" in v:
+                        v = v.split("#", 1)[0]
                     return v.strip()
     except OSError:
         pass
@@ -67,6 +92,11 @@ class RuntimeWatcher:
         self._notified: dict[str, str] = {}  # session_id -> 已通知的状态
         self._rediscovered: set[str] = set()  # 已恢复的 runtime 文件路径
         self._stop = threading.Event()
+        # ---- 终端输出注意力识别状态（session_id -> 检测状态） ----
+        self._attn: dict[str, dict] = {}
+        self._attn_quiet = float(_read_env("ATTENTION_QUIET", "8"))
+        self._attn_activity = float(_read_env("ATTENTION_ACTIVITY", "15"))
+        self._attn_grace = float(_read_env("ATTENTION_GRACE", "10"))
 
     # ---- 对外 ----
 
@@ -96,14 +126,21 @@ class RuntimeWatcher:
 
     def _poll(self):
         sm = self._session_mgr
-        for session in list(sm.list_sessions()):
-            if not session.runtime_file:
-                continue
-            state = self._read_runtime_file(session.runtime_file)
-            if not state:
-                continue
-            with sm.lock:
-                self._apply_state(session, state)
+        now = time.monotonic()
+        sessions = list(sm.list_sessions())
+        alive_ids = {s.id for s in sessions}
+        for session in sessions:
+            if session.runtime_file:
+                state = self._read_runtime_file(session.runtime_file)
+                if state:
+                    with sm.lock:
+                        self._apply_state(session, state)
+            self._check_attention(session, now)
+        # 清理已销毁会话的注意力状态
+        if self._attn:
+            for sid in list(self._attn):
+                if sid not in alive_ids:
+                    self._attn.pop(sid, None)
 
     def _apply_state(self, session, state: dict):
         """把 agent 上报的 state 落到 Session，并触发去重通知。"""
@@ -144,6 +181,102 @@ class RuntimeWatcher:
         except Exception:
             pass
         # 旧 notifier 保留（模板为空时 no-op）
+        notifier.send(title, content)
+
+    # ---- 终端输出注意力识别（不依赖 agent 上报，靠中继看到的输出） ----
+
+    def _check_attention(self, session, now: float):
+        """检测 agent 是否停下等用户输入 / 进程是否已退出，并去重推送。
+
+        判定逻辑（一条会话的"工作周期"只推一次）：
+        1. 有浏览器在盯终端页（active_subscribers>0）→ 你自己在看，不打扰。
+        2. 输出活动持续 <ATTENTION_ACTIVITY 秒 → 只是启动横幅/短互动，不算干活。
+        3. 输出停止 <ATTENTION_QUIET 秒 → 还在工作/思考，不算"在等输入"。
+        4. 最后一行不像输入提示符（你 > / (y/N) / 请确认...）→ 不是等待态。
+        5. 会话刚建（<ATTENTION_GRACE 秒）→ 启动噪音，跳过。
+        """
+        if not session.port or session.external:
+            return
+        if session.agent_key in _NO_ATTENTION_AGENTS:
+            return
+        relay = get_ttyd_relay_manager().get(session.id)
+        if relay is None:
+            return
+
+        st = self._attn.setdefault(session.id, {
+            "first": 0.0,          # 本轮工作的首次输出时间
+            "last": 0.0,           # 最近一次输出时间
+            "notified": False,     # 当前工作周期是否已推送过
+            "exit_notified": False,
+            "created": now,        # 首次观察到的时间（近似会话创建）
+        })
+
+        # --- 进程已退出（agent 自己结束）→ 低优提醒 ---
+        if relay.exited and not st["exit_notified"] and now - st["created"] > 20:
+            st["exit_notified"] = True
+            self._notify_exit(session, relay)
+            return
+
+        # --- 等待用户输入 ---
+        last = relay.last_output_at
+        if not last:
+            return
+        if st["last"] == 0.0:
+            st["first"] = last
+            st["last"] = last
+        elif last > st["last"]:
+            if st["notified"]:
+                st["first"] = last  # 上一次已推送 → 新输出开启新一轮工作
+                st["notified"] = False
+            st["last"] = last
+
+        span = st["last"] - st["first"]
+        if span < self._attn_activity:      # 输出活动太短，不算干过活
+            return
+        if now - last < self._attn_quiet:   # 还在输出，不算"停下等"
+            return
+        if now - st["created"] < self._attn_grace:
+            return
+
+        lines = relay.recent_lines(4)
+        if not lines or not _WAIT_RE.search(lines[-1]):
+            return
+        # agent 自己上报过 waiting_input（runtime 路径），不重复推
+        if session.runtime_status == "waiting_input":
+            return
+        if relay.active_subscribers() > 0:  # 有人开着终端页在看
+            return
+        if st["notified"]:
+            return
+
+        st["notified"] = True
+        self._notify_waiting(session, lines)
+
+    def _notify_waiting(self, session, lines: list):
+        """agent 停在输入提示等用户 → 高优告警（铃声+震动+直达终端）。"""
+        ctx = [l.strip() for l in lines if l.strip()][-3:]
+        content = "\n".join(ctx) or "agent 停在输入提示，等你回复"
+        title = f"[Agent 需要你] {session.name}"
+        url = f"{_PUBLIC_BASE}/term?session={session.id}" if session.port else ""
+        print(f"[提醒] 等待输入 → {session.name} (session={session.id}) {content[:80]!r}")
+        try:
+            alert(title, content, url=url)
+        except Exception as e:
+            print(f"[提醒] gotif 发送失败: {e}")
+        notifier.send(title, content)
+
+    def _notify_exit(self, session, relay):
+        """agent 进程自行退出 → 低优提醒（不响铃）。"""
+        title = f"[Agent 已完成] {session.name}"
+        content = "进程已退出"
+        if relay.exit_code is not None:
+            content += f" code={relay.exit_code}"
+        url = f"{_PUBLIC_BASE}/term?session={session.id}" if session.port else ""
+        print(f"[提醒] 进程退出 → {session.name} (session={session.id})")
+        try:
+            notify(title, content, url=url)
+        except Exception as e:
+            print(f"[提醒] gotif 发送失败: {e}")
         notifier.send(title, content)
 
     # ---- runtime 文件读取 ----

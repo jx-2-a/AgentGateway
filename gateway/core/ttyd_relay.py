@@ -16,7 +16,9 @@
 import asyncio
 import codecs
 import json
+import re
 import threading
+import time
 from typing import Callable, Optional
 
 import websockets
@@ -24,6 +26,13 @@ import websockets
 # 重放给新浏览器的最近输出上限（字符）。覆盖启动横幅 + 近期滚屏，足够看到
 # 当前状态，又不至于一次发太多。
 _REPLAY_CHARS = 256 * 1024
+
+# ANSI 转义清洗（给注意力识别的去 ANSI 行读取用）
+_ANSI_RE = re.compile(
+    r"\x1b\[[0-9;?]*[ -/]*[@-~]"
+    r"|\x1b\][^\x07]*(\x07|\x1b\\)"
+    r"|\x1b[@-Z\\-_]"
+)
 
 _INPUT_TYPE = 0x30   # '0' = INPUT
 _RESIZE_TYPE = 0x31  # '1' = RESIZE_TERMINAL
@@ -80,6 +89,7 @@ class TtydRelay:
         self.running = False
         self.exited = False
         self.exit_code: Optional[int] = None
+        self.last_output_at = 0.0  # 最近一次收到输出的时间戳（time.monotonic，0=还没输出）
         self._reader_task: Optional[asyncio.Task] = None
         self._start_lock = asyncio.Lock()
 
@@ -118,6 +128,7 @@ class TtydRelay:
                 if typ == b"0":  # 输出
                     text = self._decoder.decode(raw[1:])
                     if text:
+                        self.last_output_at = time.monotonic()
                         self._buf += text
                         if len(self._buf) > _REPLAY_CHARS * 3:
                             self._buf = self._buf[-_REPLAY_CHARS:]
@@ -165,6 +176,25 @@ class TtydRelay:
     def recent(self) -> str:
         """返回最近 _REPLAY_CHARS 字符（给新客户端重放）。"""
         return self._buf[-_REPLAY_CHARS:]
+
+    # ---- 注意力识别（runtime_watch 轮询用，跨线程读 _buf 只读安全） ----
+
+    def active_subscribers(self) -> int:
+        """当前在盯这个终端页的浏览器订阅者数量。0 = 没人看。"""
+        return len(self._subs)
+
+    def recent_lines(self, n: int = 5) -> list:
+        """返回最近 n 行去 ANSI 的可见文本（供「等待输入」识别）。
+
+        取缓冲尾部最近 4KB 清洗后切行——提示符一定是最后输出的那几行，
+        不会被更早的大块日志顶掉。
+        """
+        buf = self._buf[-4096:]
+        clean = _ANSI_RE.sub("", buf)
+        lines = clean.splitlines()
+        if not lines:
+            return []
+        return lines[-n:]
 
     # ---- 转发 ----
 

@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, WebSocket
+from fastapi import APIRouter, Cookie, Depends, File, Form, HTTPException, Response, UploadFile, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -21,9 +21,16 @@ from gateway.core.runtime import collect_stats
 from gateway.core.session import get_session_manager
 from gateway.core.registry import get_agent_registry
 from gateway.core.agent_proc import AgentProcessManager, get_agent_process_manager
+from gateway.core.system_tools import (
+    get_system_report,
+    free_memory,
+    tailscale_action,
+    vpn_action,
+)
 from gateway.core.router import process_message, get_user_mode
 from gateway.core.runtime_watch import get_runtime_watcher
 from gateway.core.ttyd_relay import get_ttyd_relay_manager
+from gateway.core.gotify_proc import get_gotify_manager
 
 # ============================================================================
 # 常量与配置
@@ -57,6 +64,8 @@ _TOKEN = _get_token()
 _INDEX_PATH = Path(__file__).parent / "webui" / "index.html"
 # 独立终端页（手机优化，直连 ttyd WS）：/term?session=<id>
 _TERM_PATH = Path(__file__).parent / "webui" / "term.html"
+# 独立文件管理页（大区域浏览 + 手机上传/下载，当数据传输用）
+_FILES_PATH = Path(__file__).parent / "webui" / "files.html"
 _WEBUI_DIR = Path(__file__).parent / "webui"
 
 # 前端静态资源（xterm.js 等）
@@ -77,6 +86,8 @@ relay_mgr = get_ttyd_relay_manager()
 
 # 启动运行时状态轮询 daemon（读 agent 的 runtime 文件、推送通知、rediscovery）
 get_runtime_watcher()
+# 确保 Gotify 推送服务在跑（手机通知依赖它；没在跑则自动拉起）
+get_gotify_manager().ensure_running()
 
 
 # ============================================================================
@@ -114,6 +125,11 @@ class CommandBody(BaseModel):
 
 class InputBody(BaseModel):
     text: str
+
+
+class VpnBody(BaseModel):
+    name: str
+    action: str  # connect | disconnect
 
 
 # ============================================================================
@@ -194,6 +210,12 @@ async def term_page():
     未登录时页面会跳回 / 登录。
     """
     return FileResponse(_TERM_PATH)
+
+
+@router.get("/files")
+async def files_page():
+    """独立文件管理页（大区域浏览 + 手机上传/下载）。?agent=<key>"""
+    return FileResponse(_FILES_PATH)
 
 
 @router.get("/{static_file}")
@@ -354,6 +376,36 @@ async def api_command(body: CommandBody):
         "reply": reply,
         "mode": get_user_mode(WEB_USER),
     }
+
+
+# ---- 系统工具（VPN/Tailscale、内存释放、设备、本服务） ----
+
+
+@router.get("/api/system", dependencies=[Depends(require_auth)])
+async def api_system():
+    """系统工具卡片数据：内存、网络适配器、Tailscale 状态、运行中会话进程、网关自身信息。"""
+    return get_system_report(sm.list_sessions())
+
+
+@router.post("/api/system/memfree", dependencies=[Depends(require_auth)])
+async def api_memfree():
+    """释放内存：EmptyWorkingSet 所有可访问进程。"""
+    return free_memory()
+
+
+@router.post("/api/system/tailscale/up", dependencies=[Depends(require_auth)])
+async def api_tailscale_up():
+    """连接 Tailscale（只提供连接，不提供断开——断开会让手机/电脑失联）。"""
+    code, text = tailscale_action("up")
+    return {"ok": code == 0, "detail": (text or "ok")[:500]}
+
+
+@router.post("/api/system/vpn", dependencies=[Depends(require_auth)])
+async def api_vpn_control(body: VpnBody):
+    """连接/断开 Windows 内置 VPN 配置（普通用户操作，无需管理员）。"""
+    if body.action not in ("connect", "disconnect"):
+        raise HTTPException(status_code=400, detail="action 须为 connect/disconnect")
+    return vpn_action(body.name, body.action == "connect")
 
 
 # ---- WebSocket 实时终端（经 gateway 中继，浏览器不直连 ttyd） ----
@@ -540,3 +592,45 @@ async def api_file(agent: str = "", path: str = "", project: str = "", dl: int =
 
     # 其他（pdf/word/压缩包等）→ 附件下载
     return FileResponse(full, filename=full.name)
+
+
+@router.post("/api/files/upload", dependencies=[Depends(require_auth)])
+async def api_upload(
+    agent: str = Form(""),
+    project: str = Form(""),
+    path: str = Form(""),
+    file: UploadFile = File(...),
+):
+    """上传文件到指定目录（手机→电脑的数据传输）。目标必须是 file_root 内。"""
+    agent_info = registry.get_agent(agent)
+    if not agent_info:
+        raise HTTPException(status_code=404, detail=f"Agent 不存在: {agent}")
+    if not path:
+        raise HTTPException(status_code=400, detail="未指定上传目录")
+
+    root, full, _roots = _resolve_file(agent_info, project, path)
+    if root is None or not full.is_dir():
+        raise HTTPException(status_code=400, detail="目标不是目录")
+
+    # 去掉可能的路径前缀，只保留文件名
+    name = os.path.basename((file.filename or "").replace("\\", "/"))
+    if not name or name in (".", ".."):
+        raise HTTPException(status_code=400, detail="非法文件名")
+    dest = (full / name).resolve()
+    if not _within(root, dest):
+        raise HTTPException(status_code=403, detail="路径越界")
+
+    size = 0
+    try:
+        with dest.open("wb") as f:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                f.write(chunk)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"写入失败: {e}")
+    return {
+        "ok": True,
+        "name": name,
+        "size": size,
+        "path": _item_path(root.name, root, dest.parent, name),
+    }
