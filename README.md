@@ -76,7 +76,7 @@ pip install -r requirements.txt
 cp .env.example .env            # 填写 GATEWAY_TOKEN / TTYD_PATH / GOTIFY_PATH 等
 
 # 3. 启动（后台）
-start.bat                       # 最小化控制台后台启动，日志写 gateway.log
+start.bat                       # 隐藏后台启动（无窗口），日志写 gateway.log
 ```
 
 访问 `http://<host>:8080`，用 `.env` 里的 `GATEWAY_TOKEN` 登录，即可从面板启动任意 Agent 并打开其终端。

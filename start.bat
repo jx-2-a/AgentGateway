@@ -1,8 +1,8 @@
 @echo off
 rem ============================================================
-rem  Agent Gateway - background launcher
+rem  Agent Gateway - background launcher (hidden, no black box)
 rem  Double-click or run: start.bat
-rem  Starts the gateway in a MINIMIZED console window (background).
+rem  Starts the gateway in a HIDDEN console via launch_gateway.vbs.
 rem  Panel: http://localhost:8080  (token: .env GATEWAY_TOKEN)
 rem  Gotify push service is auto-started by the gateway.
 rem  Stop: panel stop button, or  run stop.bat
@@ -27,10 +27,10 @@ if not exist ".env" (
     exit /b 1
 )
 
-rem ---- launch the gateway in a minimized console (background) ----
-start "Agent Gateway" /min gateway_run.bat
+rem ---- launch the gateway HIDDEN (no black box, background) ----
+wscript.exe "%~dp0launch_gateway.vbs"
 
-echo [OK] Agent Gateway started in background (minimized window).
+echo [OK] Agent Gateway started in background (hidden, no window).
 echo   Panel : http://localhost:8080
 echo   Log   : gateway.log  (this folder)
 echo   Stop  : panel stop button, or  stop.bat

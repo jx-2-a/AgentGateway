@@ -38,10 +38,12 @@ def main():
             break
         time.sleep(1)
         waited += 1
-    # 拉起新网关：最小化控制台后台跑，日志写 gateway.log
+    # 拉起新网关：隐藏控制台后台跑（launch_gateway.vbs），日志写 gateway.log。
+    # 不要用 `cmd /c start /min`——从无控制台进程拉起时 /min 不生效会出黑框。
     subprocess.Popen(
-        ["cmd", "/c", "start", "/min", str(_ROOT / "gateway_run.bat")],
+        ["wscript.exe", str(_ROOT / "launch_gateway.vbs")],
         cwd=str(_ROOT),
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
 
 
