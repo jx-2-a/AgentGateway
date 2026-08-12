@@ -14,6 +14,7 @@ import sys
 import time
 from ctypes import wintypes
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import psutil
@@ -151,8 +152,10 @@ def tailscale_action(action: str) -> tuple[int, str]:
 
 
 # ============================================================================
-# Windows 内置 VPN（Get-VpnConnection / Connect/Disconnect-VpnConnection）
-# 连接/断开是普通用户操作，不需要管理员权限。
+# Windows 内置 VPN（状态用 Get-VpnConnection；断开走 rasdial /d）
+# 连接：IKEv2 VPN 无法用 rasdial 拨号（报 691），Connect-VpnConnection 在本机
+# Win11 26200 已被微软移除。改用 UI Automation（vpn_uia.ps1）在设置页自动点
+# 「连接」按钮；自动点击失败时退回打开 ms-settings:network-vpn 手动点。
 # ============================================================================
 
 def vpn_profiles() -> list[dict]:
@@ -189,23 +192,81 @@ def vpn_profiles() -> list[dict]:
     return out
 
 
-def vpn_action(name: str, connect: bool) -> dict:
-    """连接/断开一个内置 VPN 配置。"""
-    esc = name.replace("'", "''")
-    verb = "Connect" if connect else "Disconnect"
-    ps = f"$ErrorActionPreference='Stop'; {verb}-VpnConnection -Name '{esc}'"
+def _run_rasdial(args: list[str], timeout: int) -> dict:
+    """跑 rasdial（普通用户即可，断开用），输出按 GBK 解码。"""
     try:
         r = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
-            capture_output=True, encoding="utf-8", errors="replace", timeout=90,
+            ["rasdial", *args],
+            capture_output=True, timeout=timeout,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception as e:
         return {"ok": False, "detail": str(e)}
+    out = (r.stdout or b"").decode("gbk", errors="replace").strip()
     if r.returncode == 0:
-        return {"ok": True, "detail": f"VPN「{name}」已{'连接' if connect else '断开'}"}
-    detail = (r.stderr or r.stdout or "").strip()
-    return {"ok": False, "detail": detail or f"操作失败 (rc={r.returncode})"}
+        return {"ok": True, "detail": out or f"rc={r.returncode}"}
+    return {"ok": False, "detail": out or f"rasdial 失败 (rc={r.returncode})"}
+
+
+def _open_vpn_settings() -> dict:
+    """打开 Windows VPN 设置页（ms-settings:network-vpn）。
+
+    vpn_uia.ps1 自动点击失败时的兜底：打开设置页由你手动点「连接」。
+    （本机 Win11 26200 的 Connect-VpnConnection 已被系统移除，rasdial 拨不了
+    IKEv2，只能走设置页 + UI Automation。）
+    """
+    try:
+        subprocess.Popen(
+            ["cmd", "/c", "start", "", "ms-settings:network-vpn"],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return {"ok": True,
+                "detail": "已打开 Windows VPN 设置页，请在页面上点击「连接」"}
+    except Exception as e:
+        return {"ok": False, "detail": f"打开设置页失败：{e}"}
+
+
+_VPN_UIA_SCRIPT = Path(__file__).resolve().parents[2] / "vpn_uia.ps1"
+
+
+def _vpn_connect_uia(name: str) -> dict:
+    """用 UI Automation 在 Windows VPN 设置页上自动点「连接」。
+
+    设置页 VPN 条目行（EntityItem）下只有一个按钮：断开状态 aid 为空（即
+    「连接」按钮），连接状态 aid 为 DisconnectButton。vpn_uia.ps1 找到该按钮
+    并 Invoke；失败/超时则退回打开设置页手动点。
+    """
+    script = _VPN_UIA_SCRIPT
+    if not script.is_file():
+        return _open_vpn_settings()
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", str(script), "-Action", "connect"],
+            capture_output=True, timeout=60,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception as e:
+        return {"ok": False, "detail": f"自动连接失败：{e}"}
+    out = (r.stdout or b"").decode("utf-8", errors="replace").strip()
+    if "INVOKED" in out:
+        return {"ok": True, "detail": "已自动点击「连接」，等待 VPN 建立连接…"}
+    if "ALREADY_CONNECTED" in out:
+        return {"ok": True, "detail": "VPN 已处于连接状态"}
+    # 自动点击失败 → 退回打开设置页手动连
+    return _open_vpn_settings()
+
+
+def vpn_action(name: str, connect: bool) -> dict:
+    """连接/断开一个内置 VPN 配置。
+
+    断开：rasdial "<name>" /d —— 普通用户可用。
+    连接：优先用 UI Automation（vpn_uia.ps1）在设置页自动点「连接」；
+    失败时退回打开 Windows VPN 设置页，由你手动点。
+    """
+    if not connect:
+        return _run_rasdial([name, "/d"], timeout=30)
+    return _vpn_connect_uia(name)
 
 
 # ============================================================================
