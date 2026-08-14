@@ -111,6 +111,7 @@
   <span class="dot"></span>
   <span class="title" id="status-title">连接中...</span>
   <span class="spacer"></span>
+  <a href="/files" class="home-btn" id="files-btn">文件</a>
   <a href="/" class="home-btn">主页</a>
 </div>
 
@@ -394,6 +395,9 @@ async function init() {
   }
   sessionTitle = cap(s.agent_key) + ' #' + s.id;
   document.title = sessionTitle + ' — 终端';
+  // 文件入口直接带当前 agent，避免退回去再选
+  const fb = document.getElementById('files-btn');
+  if (fb && s.agent_key) fb.href = '/files?agent=' + encodeURIComponent(s.agent_key);
   setStatus('', '连接中: ' + sessionTitle);
   if (!s.running) {
     // 已退出：只读查看历史输出，隐藏输入工具条

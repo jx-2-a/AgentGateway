@@ -167,11 +167,21 @@ def _within(base: Path, target: Path) -> bool:
         return False
 
 
-def _resolve_file(agent, project: str, path: str):
-    """把 API 的相对路径解析为 (root_dir, full_path)。
+def _is_abs(path: str) -> bool:
+    """判断是否为 Windows 绝对路径（盘符 D:/ 或 UNC \\\\server\\share）。"""
+    return (
+        path.startswith("\\\\")
+        or (len(path) >= 3 and path[1] == ":" and path[0].isalpha() and path[2] in "/\\")
+    )
 
-    路径约定: path="" 表示顶层（列出所有 file_root）；否则
-    path 的第一段是 file_root 的目录名，其后是相对路径。
+
+def _resolve_file(agent, project: str, path: str):
+    """把 API 的 path 解析为 (root_dir, full_path)。
+
+    - path="" → 顶层（root=None, full 空），列出所有 file_root
+    - path 是绝对路径（D:/… 或 \\\\server\\share）→ 直接浏览该目录（root=None，
+      用于从项目根往上级/全盘找文件）
+    - 其余 → path 第一段是 file_root 目录名，其后为相对路径（仍受越界保护）
     """
     roots = _agent_file_roots(agent, project)
     if not roots:
@@ -183,6 +193,9 @@ def _resolve_file(agent, project: str, path: str):
 
     if not path:
         return None, Path(""), roots
+
+    if _is_abs(path):
+        return None, Path(path).resolve(), roots
 
     parts = path.split("/")
     root = next((r for r in roots if r.name == parts[0]), None)
@@ -199,6 +212,11 @@ def _item_path(root_name: str, root: Path, full: Path, name: str) -> str:
     """把文件拼回 API 相对路径（rootname/.../name）。"""
     rel_parts = full.relative_to(root).parts
     return "/".join([root_name, *rel_parts, name])
+
+
+def _abs_item_path(full: Path, name: str) -> str:
+    """把绝对目录下的文件拼成 API 绝对路径（正斜杠，方便放 query）。"""
+    return str((full / name).resolve()).replace("\\", "/")
 
 
 # ============================================================================
@@ -622,8 +640,8 @@ async def api_agent_files(key: str, path: str = "", project: str = ""):
 
     root, full, roots = _resolve_file(agent, project, path)
 
-    if root is None:
-        # 顶层：列出所有 file_root 目录
+    if root is None and not path:
+        # 顶层：列出所有 file_root 目录（快速入口）
         items = []
         for r in roots:
             items.append({
@@ -633,14 +651,23 @@ async def api_agent_files(key: str, path: str = "", project: str = ""):
                 "size": None,
                 "mtime": None,
                 "exists": r.exists(),
+                "abs": str(r.resolve()),
             })
-        return {"path": "", "parent": None, "items": items}
+        first_parent = roots[0].resolve().parent if roots else None
+        return {
+            "path": "",
+            "abs": None,
+            "parent_abs": str(first_parent) if first_parent else None,
+            "roots": True,
+            "items": items,
+        }
 
     if not full.exists():
         raise HTTPException(status_code=404, detail="路径不存在")
     if not full.is_dir():
         raise HTTPException(status_code=400, detail="不是目录")
 
+    abs_mode = root is None
     items = []
     entries = sorted(full.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))
     for entry in entries[:500]:
@@ -657,18 +684,27 @@ async def api_agent_files(key: str, path: str = "", project: str = ""):
             mtime = entry.stat().st_mtime
         except OSError:
             mtime = None
+        item_path = (
+            _abs_item_path(full, entry.name)
+            if abs_mode
+            else _item_path(root.name, root, full, entry.name)
+        )
         items.append({
             "name": entry.name,
-            "path": _item_path(root.name, root, full, entry.name),
+            "path": item_path,
             "type": "dir" if is_dir else "file",
             "size": size,
             "mtime": mtime,
             "exists": True,
         })
 
+    current_abs = str(full.resolve())
+    parent_abs = str(full.parent.resolve()) if full.parent != full else None
     return {
         "path": path,
-        "parent": _parent_path(path),
+        "abs": current_abs,
+        "parent_abs": parent_abs,
+        "roots": False,
         "items": items,
     }
 
@@ -697,7 +733,7 @@ async def api_file(agent: str = "", path: str = "", project: str = "", dl: int =
         raise HTTPException(status_code=400, detail="参数错误")
 
     root, full, _roots = _resolve_file(agent_info, project, path)
-    if root is None or not full.is_file():
+    if not full.is_file():
         raise HTTPException(status_code=400, detail="不是文件")
 
     mime, _ = mimetypes.guess_type(full.name)
@@ -740,7 +776,7 @@ async def api_upload(
         raise HTTPException(status_code=400, detail="未指定上传目录")
 
     root, full, _roots = _resolve_file(agent_info, project, path)
-    if root is None or not full.is_dir():
+    if not full.is_dir():
         raise HTTPException(status_code=400, detail="目标不是目录")
 
     # 去掉可能的路径前缀，只保留文件名
@@ -748,7 +784,7 @@ async def api_upload(
     if not name or name in (".", ".."):
         raise HTTPException(status_code=400, detail="非法文件名")
     dest = (full / name).resolve()
-    if not _within(root, dest):
+    if root is not None and not _within(root, dest):
         raise HTTPException(status_code=403, detail="路径越界")
 
     size = 0
@@ -759,9 +795,14 @@ async def api_upload(
                 f.write(chunk)
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"写入失败: {e}")
+    result_path = (
+        _abs_item_path(dest.parent, name)
+        if root is None
+        else _item_path(root.name, root, dest.parent, name)
+    )
     return {
         "ok": True,
         "name": name,
         "size": size,
-        "path": _item_path(root.name, root, dest.parent, name),
+        "path": result_path,
     }

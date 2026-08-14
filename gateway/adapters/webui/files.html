@@ -28,6 +28,11 @@
   .home-btn { padding: 4px 12px; border-radius: 999px; font-size: 12px; text-decoration: none;
     background: rgba(88,166,255,.12); color: var(--accent);
     border: 1px solid rgba(88,166,255,.35); white-space: nowrap; flex-shrink: 0; }
+  .up-btn { padding: 6px 14px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--card); color: var(--dim); font-size: 13px; cursor: pointer;
+    white-space: nowrap; flex-shrink: 0; }
+  .up-btn:disabled { opacity: .4; cursor: default; }
+  .up-btn:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
   .sel { background: var(--bg); color: var(--text); border: 1px solid var(--border);
     border-radius: 8px; padding: 5px 8px; font-size: 13px; max-width: 150px; }
   #topbar .spacer { flex: 1; }
@@ -44,6 +49,9 @@
     padding: 8px 12px; font-size: 12px; color: var(--dim); }
   .crumb-item { cursor: pointer; color: var(--accent); }
   .crumb-item:hover { text-decoration: underline; }
+  #crumb .crumb-cur { color: var(--text); }
+  #crumb .crumb-home { cursor: pointer; color: var(--green); }
+  #crumb .crumb-home:hover { text-decoration: underline; }
 
   /* ---- 文件列表（大触控区） ---- */
   #list { flex: 1; overflow-y: auto; padding: 6px; -webkit-overflow-scrolling: touch; }
@@ -60,17 +68,29 @@
   .empty { color: var(--dim); text-align: center; padding: 40px; font-size: 13px; }
 
   /* ---- 预览 ---- */
-  #preview { flex-shrink: 0; max-height: 42vh; overflow: auto; border-top: 1px solid var(--border);
-    padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); display: none; }
-  #preview.show { display: block; }
-  #preview img { max-width: 100%; border-radius: 8px; }
-  #preview pre { font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap;
-    word-break: break-all; color: var(--text); }
-  #preview .pdl { display: inline-block; margin-top: 8px; color: var(--accent); font-size: 13px; }
-  #preview .phead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  #preview { flex-shrink: 0; height: 36vh; border-top: 1px solid var(--border); display: none; flex-direction: column; }
+  #preview.show { display: flex; }
+  #pv-handle { flex-shrink: 0; height: 14px; display: flex; align-items: center; justify-content: center;
+    cursor: ns-resize; touch-action: none; }
+  #pv-handle i { width: 40px; height: 4px; border-radius: 2px; background: var(--border); }
+  #pv-handle:active i, #pv-handle.drag i { background: var(--accent); }
+  #preview .phead { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0;
     font-size: 13px; color: var(--dim); }
   #preview .pclose { margin-left: auto; background: none; border: none; color: var(--dim);
     font-size: 16px; cursor: pointer; padding: 4px; }
+  #pv-zoom { display: flex; align-items: center; gap: 6px; padding: 6px 14px 4px; }
+  .pz-btn { min-width: 36px; height: 30px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; font-size: 14px; cursor: pointer;
+    touch-action: manipulation; }
+  .pz-btn:active { background: var(--border); }
+  #pz-slider { flex: 1; accent-color: var(--accent); }
+  .pz-dl { color: var(--accent); font-size: 13px; text-decoration: none; white-space: nowrap; }
+  #pv-body { flex: 1; min-height: 0; overflow: auto; padding: 0 14px calc(10px + env(safe-area-inset-bottom));
+    -webkit-overflow-scrolling: touch; }
+  #pv-body img { border-radius: 8px; display: block; }
+  #pv-body pre { font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap;
+    word-break: break-all; color: var(--text); }
+  #pv-body .pdl { display: inline-block; margin-top: 8px; color: var(--accent); font-size: 13px; }
 
   /* ---- 上传遮罩 ---- */
   #upload-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100;
@@ -92,6 +112,7 @@
   <select id="agent-select" class="sel"></select>
   <select id="project-select" class="sel" style="display:none"></select>
   <span class="spacer"></span>
+  <button id="up-btn" class="up-btn" disabled title="上级目录">↑ 上级</button>
   <button id="upload-btn">上传</button>
   <input type="file" id="file-input" multiple hidden>
 </header>
@@ -101,7 +122,15 @@
 <div id="list"><div class="empty">加载中...</div></div>
 
 <div id="preview">
+  <div id="pv-handle" title="拖动调整预览高度"><i></i></div>
   <div class="phead"><span id="pv-name"></span><button class="pclose" id="pv-close">✕</button></div>
+  <div id="pv-zoom" style="display:none">
+    <button id="pz-fit" class="pz-btn" title="适应窗口">⤢</button>
+    <button id="pz-out" class="pz-btn" title="缩小">−</button>
+    <input type="range" id="pz-slider" min="10" max="400" value="100" step="5">
+    <button id="pz-in" class="pz-btn" title="放大">＋</button>
+    <a id="pz-dl" class="pz-dl" href="#">下载</a>
+  </div>
   <div id="pv-body"></div>
 </div>
 
@@ -122,6 +151,7 @@ let agents = [];
 let agentKey = new URLSearchParams(location.search).get('agent') || '';
 let project = '';
 let path = '';
+let parentAbs = null;    // 当前目录的上级（绝对路径），null = 到顶了
 
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function escAttr(s) { return String(s).replace(/[&<>"']/g, c =>
@@ -194,7 +224,7 @@ const TXT_EXTS = ['txt','csv','log','md','json','yaml','yml','py','toml','cfg','
 async function loadFiles(p) {
   path = p;
   setStatus('加载中...');
-  // 根目录不是可写目录，先进文件夹才能上传
+  // 工作目录根列表不是可写目录，先进文件夹才能上传
   const upBtn = document.getElementById('upload-btn');
   if (!path) { upBtn.disabled = true; upBtn.title = '先进入文件夹再上传'; }
   else { upBtn.disabled = false; upBtn.title = ''; }
@@ -208,7 +238,11 @@ async function loadFiles(p) {
     return;
   }
   setStatus(project ? (agentKey + ' · ' + project) : agentKey);
-  renderCrumb(data.path, data.parent);
+  parentAbs = data.parent_abs || null;
+  const up = document.getElementById('up-btn');
+  up.disabled = !parentAbs;
+  up.title = parentAbs ? '上级: ' + parentAbs : '已到最顶层';
+  renderCrumb(data);
   hidePreview();
   const list = document.getElementById('list');
   if (!data.items.length) { list.innerHTML = '<div class="empty">空目录</div>'; return; }
@@ -224,14 +258,31 @@ async function loadFiles(p) {
   }).join('');
 }
 
-function renderCrumb(p) {
+// 上级按钮：越出项目根，往磁盘上找文件
+function goUp() {
+  if (parentAbs) loadFiles(parentAbs);
+}
+document.getElementById('up-btn').addEventListener('click', goUp);
+
+// 面包屑：工作目录（根列表）→ 真实绝对路径各段，均可点击跳转
+function renderCrumb(data) {
   const crumb = document.getElementById('crumb');
-  const parts = p ? p.split('/') : [];
-  let html = '<span class="crumb-item" onclick="loadFiles(\'\')">根目录</span>';
+  if (data.roots) {
+    crumb.innerHTML = '<span class="crumb-home" onclick="loadFiles(\'\')">📁 工作目录</span>';
+    return;
+  }
+  const raw = data.abs || '';
+  const segs = raw.split(/[/\\]+/).filter(s => s.length);
+  const isUnc = raw.startsWith('\\\\');
+  let html = '<span class="crumb-home" onclick="loadFiles(\'\')">📁 工作目录</span>';
   let acc = '';
-  parts.forEach(seg => {
-    acc = acc ? acc + '/' + seg : seg;
-    html += ' <span>/</span> <span class="crumb-item" onclick="loadFiles(\'' + escAttr(acc) + '\')">' + esc(seg) + '</span>';
+  segs.forEach((seg, i) => {
+    // 首段：盘符补斜杠（D: → D:/），UNC 主机名保留 \\ 前缀
+    acc = (i === 0) ? (isUnc ? '\\\\' + seg : seg + '/') : acc + '/' + seg;
+    const isLast = i === segs.length - 1;
+    html += ' <span>/</span> ';
+    if (isLast) html += '<span class="crumb-cur">' + esc(seg) + '</span>';
+    else html += '<span class="crumb-item" onclick="loadFiles(\'' + escAttr(acc) + '\')">' + esc(seg) + '</span>';
   });
   crumb.innerHTML = html;
 }
@@ -248,9 +299,25 @@ document.getElementById('list').addEventListener('click', ev => {
 function downloadFile(p) { window.open(fileUrl(p, true), '_blank'); }
 
 // ---- 预览 ----
+let pvImg = null;        // 当前预览的 <img>
+let pvNatural = 0;       // 图片自然宽度
+let pvZoom = 1;          // 当前缩放（相对自然尺寸，1=100%）
+let pvFit = 1;           // "适应窗口"基准（容器宽/自然宽，取 ≤1 不强放大）
+
+function pvShow(show) { document.getElementById('pv-zoom').style.display = show ? '' : 'none'; }
+
+function pvApplyZoom() {
+  if (!pvImg || !pvNatural) return;
+  pvImg.style.width = Math.round(pvNatural * pvZoom) + 'px';
+  pvImg.style.height = 'auto';
+  document.getElementById('pz-slider').value = Math.round(pvZoom * 100);
+}
+
 function hidePreview() {
   document.getElementById('preview').classList.remove('show');
   document.getElementById('pv-body').innerHTML = '';
+  pvImg = null; pvNatural = 0; pvZoom = 1; pvFit = 1;
+  pvShow(false);
 }
 
 async function previewFile(p) {
@@ -259,10 +326,24 @@ async function previewFile(p) {
   document.getElementById('pv-name').textContent = p.split('/').pop() || p;
   prev.classList.add('show');
   body.innerHTML = '<p style="color:#8b949e">加载中...</p>';
+  pvShow(false);
   const ext = (p.split('.').pop() || '').toLowerCase();
   if (IMG_EXTS.includes(ext)) {
-    body.innerHTML = '<img src="' + escAttr(fileUrl(p)) + '" alt="preview"><br>' +
-      '<a class="pdl" href="' + escAttr(fileUrl(p, true)) + '">下载原图</a>';
+    document.getElementById('pz-dl').href = fileUrl(p, true);
+    body.innerHTML = '<img src="' + escAttr(fileUrl(p)) + '" alt="preview">';
+    pvImg = body.querySelector('img');
+    pvShow(true);
+    pvImg.onload = () => {
+      pvNatural = pvImg.naturalWidth || pvImg.clientWidth || 1;
+      const cw = body.clientWidth - 16 || 320;
+      pvFit = Math.min(1, cw / pvNatural);
+      pvZoom = pvFit;
+      pvApplyZoom();
+    };
+    pvImg.onerror = () => {
+      body.innerHTML = '<p style="color:#f85149">图片加载失败</p>';
+      pvShow(false);
+    };
     return;
   }
   if (TXT_EXTS.includes(ext)) {
@@ -279,6 +360,30 @@ async function previewFile(p) {
 }
 
 document.getElementById('pv-close').addEventListener('click', hidePreview);
+
+// ---- 预览面板高度可拖拽调整（手柄在上缘） ----
+const pvHandle = document.getElementById('pv-handle');
+const previewEl = document.getElementById('preview');
+let pvDrag = null;
+pvHandle.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  pvDrag = { startY: e.clientY, startH: previewEl.offsetHeight };
+  pvHandle.classList.add('drag');
+  try { pvHandle.setPointerCapture(e.pointerId); } catch (err) {}
+});
+pvHandle.addEventListener('pointermove', e => {
+  if (!pvDrag) return;
+  const h = pvDrag.startH + (pvDrag.startY - e.clientY);   // 往上拖 → 变高
+  previewEl.style.height = Math.max(96, Math.min(window.innerHeight - 140, h)) + 'px';
+});
+const pvEndDrag = () => { pvDrag = null; pvHandle.classList.remove('drag'); };
+pvHandle.addEventListener('pointerup', pvEndDrag);
+pvHandle.addEventListener('pointercancel', pvEndDrag);
+
+document.getElementById('pz-fit').addEventListener('click', () => { pvZoom = pvFit; pvApplyZoom(); });
+document.getElementById('pz-out').addEventListener('click', () => { pvZoom = Math.max(0.1, +(pvZoom / 1.4).toFixed(2)); pvApplyZoom(); });
+document.getElementById('pz-in').addEventListener('click', () => { pvZoom = Math.min(4, +(pvZoom * 1.4).toFixed(2)); pvApplyZoom(); });
+document.getElementById('pz-slider').addEventListener('input', e => { pvZoom = Number(e.target.value) / 100; pvApplyZoom(); });
 
 // ---- 上传（手机→电脑） ----
 const fileInput = document.getElementById('file-input');
